@@ -27,7 +27,6 @@ def get_main_menu_inline():
     markup.add(types.InlineKeyboardButton('⚡️ Создать розыгрыш', callback_data='create_giveaway'))
     return markup
 
-# Вспомогательная функция для вывода каналов
 def show_channels(chat_id, user_id, message_id=None):
     if user_id in user_channels and user_channels[user_id]:
         markup = types.InlineKeyboardMarkup()
@@ -52,7 +51,6 @@ def show_channels(chat_id, user_id, message_id=None):
 def start(message):
     user_id = message.from_user.id
     
-    # Проверка на переход из кнопки "Участвовать"
     if len(message.text.split()) > 1 and message.text.split()[1].startswith('join_'):
         try:
             msg_id = int(message.text.split()[1].split('_')[1])
@@ -67,13 +65,20 @@ def start(message):
                 bot.send_message(message.chat.id, "Ты уже участвуешь в этом розыгрыше! 🍀")
                 return
 
-            try:
-                member = bot.get_chat_member(giveaway['chat_id'], user_id)
-                if member.status in ['left', 'kicked']:
-                    bot.send_message(message.chat.id, "❌ Ты не подписан на канал! Сначала подпишись, потом участвуй.")
-                    return
-            except Exception:
-                pass 
+            all_subscribed = True
+            for req_channel in giveaway.get('required_channels', []):
+                try:
+                    member = bot.get_chat_member(req_channel, user_id)
+                    if member.status in ['left', 'kicked']:
+                        all_subscribed = False
+                        break
+                except Exception:
+                    all_subscribed = False
+                    break
+            
+            if not all_subscribed:
+                bot.send_message(message.chat.id, "❌ Ты не подписан на все обязательные каналы! Сначала подпишись, потом участвуй.")
+                return
 
             giveaway['participants'].add(user_id)
             bot.send_message(message.chat.id, "✅ Вы участвуете в конкурсе! Удачи! 🍀")
@@ -111,7 +116,6 @@ def start(message):
             bot.send_message(message.chat.id, "❌ Этот розыгрыш уже завершен или не найден.")
         return
 
-    # Обычный /start
     user_states.pop(user_id, None)
     welcome_text = (
         "©️ Главное меню:\n\n"
@@ -121,7 +125,6 @@ def start(message):
     bot.send_message(message.chat.id, welcome_text, reply_markup=types.ReplyKeyboardRemove())
     bot.send_message(message.chat.id, '⚙️ Меню:', reply_markup=get_main_menu_inline())
 
-# --- КОМАНДА /create ---
 @bot.message_handler(commands=['create'])
 def cmd_create(message):
     user_id = message.from_user.id
@@ -163,8 +166,51 @@ def text_handler(message):
 
         elif state.get('step') == 'waiting_for_giveaway_text':
             state['text'] = message.text
-            state['step'] = 'waiting_for_target_count'
-            bot.send_message(message.chat.id, '🎯 На сколько участников конкурс завершится? (напиши число)', reply_markup=get_back_button())
+            state['step'] = 'waiting_for_required_channels'
+            state['required_channels'] = set()
+            
+            text = (
+                "➕ **Добавьте каналы, на которые пользователям нужно будет подписаться для участия в розыгрыше.**\n\n"
+                "❗️ Подписка на канал, в котором проводится розыгрыш, обязательна и включена по умолчанию.\n\n"
+                "Чтобы добавить канал, нужно:\n"
+                "1. Добавить бота @xoreygram_bot в этот канал как администратора - это нужно, чтобы бот мог проверить подписан ли пользователь на канал (и в том, и в том каналах бот должен быть администратором).\n"
+                "2. Отправить боту канал в формате @юзернеймканала или переслать сообщение из этого канала.\n\n"
+                "💬 Если Вы хотите чтобы участвовать в розыгрыше можно было без подписок на другие каналы, нажмите кнопку ниже:"
+            )
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton('📢 Опубликовать без обязательных подписок', callback_data='no_required_subs'))
+            markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+            
+            bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='Markdown')
+            return
+
+        elif state.get('step') == 'waiting_for_required_channels':
+            channel_id = None
+            if message.forward_from_chat:
+                channel_id = message.forward_from_chat.id
+            elif message.text.startswith('@'):
+                try:
+                    chat = bot.get_chat(message.text)
+                    channel_id = chat.id
+                except Exception:
+                    bot.send_message(message.chat.id, '❌ Не удалось найти канал по этому юзернейму. Проверьте правильность.')
+                    return
+            
+            if channel_id:
+                try:
+                    bot_member = bot.get_chat_member(channel_id, bot.get_me().id)
+                    if bot_member.status not in ['administrator', 'creator']:
+                        bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
+                        return
+                except Exception:
+                    bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
+                    return
+
+                state['required_channels'].add(channel_id)
+                bot.send_message(message.chat.id, '✅ Канал добавлен в обязательные подписки. Можете добавить еще или нажать "Опубликовать без обязательных подписок", чтобы перейти к настройке цели.', reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton('📢 Опубликовать без обязательных подписок', callback_data='no_required_subs')))
+            else:
+                bot.send_message(message.chat.id, '❌ Отправьте юзернейм канала (@channel) или перешлите сообщение.')
             return
 
         elif state.get('step') == 'waiting_for_target_count':
@@ -184,7 +230,8 @@ def text_handler(message):
                     f"📢 **Предпросмотр конкурса**\n\n"
                     f"**Текст:** {state['text']}\n"
                     f"**Цель:** {state['target_count']} участников\n"
-                    f"**Победителей:** {state['winners_count']}\n\n"
+                    f"**Победителей:** {state['winners_count']}\n"
+                    f"**Обязательных каналов:** {len(state.get('required_channels', []))}\n\n"
                     f"Вы уверены, что хотите опубликовать конкурс?"
                 )
                 
@@ -237,7 +284,7 @@ def callback_handler(call):
 
     elif call.data.startswith('select_ch_'):
         channel_id = int(call.data.split('_')[2])
-        user_states[user_id] = {'step': 'waiting_for_giveaway_text', 'channel_id': channel_id}
+        user_states[user_id] = {'step': 'waiting_for_giveaway_text', 'channel_id': channel_id, 'required_channels': set()}
         bot.edit_message_text(
             chat_id=call.message.chat.id, message_id=call.message.message_id,
             text=(
@@ -249,6 +296,16 @@ def callback_handler(call):
         )
         bot.answer_callback_query(call.id)
 
+    elif call.data == 'no_required_subs':
+        if state and state.get('step') == 'waiting_for_required_channels':
+            state['step'] = 'waiting_for_target_count'
+            bot.edit_message_text(
+                chat_id=call.message.chat.id, message_id=call.message.message_id,
+                text='🎯 На сколько участников конкурс завершится? (напиши число)',
+                reply_markup=get_back_button()
+            )
+        bot.answer_callback_query(call.id)
+
     elif call.data == 'confirm_publish':
         if state and state.get('step') == 'waiting_for_confirm':
             channel_id = state['channel_id']
@@ -256,6 +313,7 @@ def callback_handler(call):
             text = state['text']
             target = state['target_count']
             winners_count = state['winners_count']
+            required_channels = list(state.get('required_channels', []))
             
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton('🎮 Участвовать', url=f'https://t.me/{BOT_USERNAME}?start=join_pending'))
@@ -273,7 +331,8 @@ def callback_handler(call):
                     'winners_count': winners_count,
                     'chat_id': channel_id, 
                     'creator_id': user_id, 
-                    'text': text
+                    'text': text,
+                    'required_channels': required_channels
                 }
                 
                 finish_markup = types.InlineKeyboardMarkup()

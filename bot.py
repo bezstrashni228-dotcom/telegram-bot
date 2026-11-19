@@ -2,6 +2,7 @@ import telebot
 from telebot import types
 import random
 import os
+import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
@@ -12,8 +13,22 @@ BOT_USERNAME = 'xoreygram_bot'
 bot = telebot.TeleBot(TOKEN)
 
 user_states = {}
-user_channels = {} 
 active_giveaways = {} 
+
+# --- ФАЙЛ ДЛЯ СОХРАНЕНИЯ КАНАЛОВ ---
+CHANNELS_FILE = 'channels.json'
+
+def load_channels():
+    if os.path.exists(CHANNELS_FILE):
+        with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_channels(data):
+    with open(CHANNELS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+user_channels = load_channels()
 
 def get_back_button():
     markup = types.InlineKeyboardMarkup()
@@ -28,9 +43,9 @@ def get_main_menu_inline():
     return markup
 
 def show_channels(chat_id, user_id, message_id=None):
-    if user_id in user_channels and user_channels[user_id]:
+    if str(user_id) in user_channels and user_channels[str(user_id)]:
         markup = types.InlineKeyboardMarkup()
-        for ch_id, ch_title in user_channels[user_id].items():
+        for ch_id, ch_title in user_channels[str(user_id)].items():
             markup.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
         markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
         
@@ -137,25 +152,38 @@ def text_handler(message):
     state = user_states.get(user_id)
 
     if isinstance(state, dict):
+        # --- ДОБАВЛЕНИЕ ОСНОВНОГО КАНАЛА ---
         if state.get('step') == 'waiting_for_add_channel':
+            channel_id = None
+            channel_title = None
+            
             if message.forward_from_chat:
                 channel_id = message.forward_from_chat.id
                 channel_title = message.forward_from_chat.title
+            elif message.text.startswith('@'):
+                try:
+                    chat = bot.get_chat(message.text)
+                    channel_id = chat.id
+                    channel_title = chat.title
+                except Exception:
+                    bot.send_message(message.chat.id, '❌ Не удалось найти канал по этому юзернейму.')
+                    return
             else:
                 try:
                     channel_id = int(message.text)
                     channel_title = f"Канал {channel_id}"
                 except ValueError:
-                    bot.send_message(message.chat.id, '❌ Это не похоже на ID. Перешли сообщение из канала или напиши число.', reply_markup=get_back_button())
+                    bot.send_message(message.chat.id, '❌ Отправь @юзернейм, ID или перешли сообщение из канала.', reply_markup=get_back_button())
                     return
             
             try:
                 test_msg = bot.send_message(channel_id, '✅ Бот успешно добавлен!')
                 bot.delete_message(channel_id, test_msg.message_id)
                 
-                if user_id not in user_channels:
-                    user_channels[user_id] = {}
-                user_channels[user_id][channel_id] = channel_title
+                if str(user_id) not in user_channels:
+                    user_channels[str(user_id)] = {}
+                user_channels[str(user_id)][str(channel_id)] = channel_title
+                save_channels(user_channels) # Сохраняем в файл
                 
                 bot.send_message(message.chat.id, f'✅ Канал "{channel_title}" успешно привязан!', reply_markup=get_main_menu_inline())
             except Exception:
@@ -164,27 +192,27 @@ def text_handler(message):
             del user_states[user_id]
             return
 
+        # --- ВВОД ТЕКСТА РОЗЫГРЫША ---
         elif state.get('step') == 'waiting_for_giveaway_text':
             state['text'] = message.text
             state['step'] = 'waiting_for_required_channels'
-            state['required_channels'] = set()
             
             text = (
-                "➕ **Добавьте каналы, на которые пользователям нужно будет подписаться для участия в розыгрыше.**\n\n"
-                "❗️ Подписка на канал, в котором проводится розыгрыш, обязательна и включена по умолчанию.\n\n"
-                "Чтобы добавить канал, нужно:\n"
-                "1. Добавить бота @xoreygram_bot в этот канал как администратора - это нужно, чтобы бот мог проверить подписан ли пользователь на канал (и в том, и в том каналах бот должен быть администратором).\n"
-                "2. Отправить боту канал в формате @юзернеймканала или переслать сообщение из этого канала.\n\n"
-                "💬 Если Вы хотите чтобы участвовать в розыгрыше можно было без подписок на другие каналы, нажмите кнопку ниже:"
+                "➕ **Добавьте каналы, на которые пользователям нужно будет подписаться для участия.**\n\n"
+                "❗️ Подписка на канал, в котором проводится розыгрыш, обязательна.\n\n"
+                "1. Добавьте @xoreygram_bot в канал как администратора.\n"
+                "2. Отправьте @юзернейм канала или перешлите сообщение.\n\n"
+                "💬 Или нажмите кнопку ниже, чтобы пропустить:"
             )
             
             markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton('📢 Опубликовать без обязательных подписок', callback_data='no_required_subs'))
+            markup.add(types.InlineKeyboardButton('📢 Пропустить подписки', callback_data='no_required_subs'))
             markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
             
             bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='Markdown')
             return
 
+        # --- ДОБАВЛЕНИЕ ОБЯЗАТЕЛЬНЫХ КАНАЛОВ ---
         elif state.get('step') == 'waiting_for_required_channels':
             channel_id = None
             if message.forward_from_chat:
@@ -194,7 +222,7 @@ def text_handler(message):
                     chat = bot.get_chat(message.text)
                     channel_id = chat.id
                 except Exception:
-                    bot.send_message(message.chat.id, '❌ Не удалось найти канал по этому юзернейму. Проверьте правильность.')
+                    bot.send_message(message.chat.id, '❌ Не удалось найти канал.')
                     return
             
             if channel_id:
@@ -208,11 +236,12 @@ def text_handler(message):
                     return
 
                 state['required_channels'].add(channel_id)
-                bot.send_message(message.chat.id, '✅ Канал добавлен в обязательные подписки. Можете добавить еще или нажать "Опубликовать без обязательных подписок", чтобы перейти к настройке цели.', reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton('📢 Опубликовать без обязательных подписок', callback_data='no_required_subs')))
+                bot.send_message(message.chat.id, '✅ Канал добавлен! Можете добавить еще или нажать кнопку ниже.')
             else:
-                bot.send_message(message.chat.id, '❌ Отправьте юзернейм канала (@channel) или перешлите сообщение.')
+                bot.send_message(message.chat.id, '❌ Отправьте @юзернейм канала или перешлите сообщение.')
             return
 
+        # --- ЦЕЛЬ ---
         elif state.get('step') == 'waiting_for_target_count':
             try:
                 state['target_count'] = int(message.text)
@@ -222,6 +251,7 @@ def text_handler(message):
                 bot.send_message(message.chat.id, '❌ Пожалуйста, введи число (например, 10).', reply_markup=get_back_button())
             return
 
+        # --- ПОБЕДИТЕЛИ ---
         elif state.get('step') == 'waiting_for_winners_count':
             try:
                 state['winners_count'] = int(message.text)
@@ -272,7 +302,7 @@ def callback_handler(call):
         user_states[user_id] = {'step': 'waiting_for_add_channel'}
         bot.edit_message_text(
             chat_id=call.message.chat.id, message_id=call.message.message_id,
-            text='🔗 Отправь ID твоего канала (например, -1001234567890) или перешли сюда сообщение из канала.\n\n⚠️ Важно: я должен быть админом в канале!',
+            text='🔗 Отправь @юзернейм канала, ID или перешли сообщение из канала.\n\n⚠️ Важно: я должен быть админом!',
             reply_markup=get_back_button()
         )
         bot.answer_callback_query(call.id)
@@ -308,8 +338,8 @@ def callback_handler(call):
 
     elif call.data == 'confirm_publish':
         if state and state.get('step') == 'waiting_for_confirm':
-            channel_id = state['channel_id']
-            channel_title = user_channels[user_id].get(channel_id, "Канал")
+            channel_id = int(state['channel_id'])
+            channel_title = user_channels[str(user_id)].get(str(channel_id), "Канал")
             text = state['text']
             target = state['target_count']
             winners_count = state['winners_count']
@@ -390,12 +420,4 @@ def run_dummy_server():
         def do_GET(self):
             self.send_response(200); self.end_headers(); self.wfile.write(b"Bot is running")
         def do_HEAD(self):
-            self.send_response(200); self.end_headers()
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), DummyHandler)
-    server.serve_forever()
-
-threading.Thread(target=run_dummy_server, daemon=True).start()
-
-print("Бот запущен!")
-bot.infinity_polling()
+            self.send_response(20

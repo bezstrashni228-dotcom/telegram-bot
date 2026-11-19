@@ -1,4 +1,6 @@
 import telebot
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telebot import types
 
 TOKEN = '9132199477:AAF2OR95y3cE4K0vBn0KMx0KmtkIsHO_EYE'
@@ -23,6 +25,22 @@ def text_handler(message):
         bot.send_message(message.chat.id, 'Обратитесь к @xorey_big')
     else:
         bot.send_message(message.chat.id, 'Я не знаю такой команды. Нажми /start, чтобы открыть меню.')
+
+print("Бот запущен!")
+bot.infinity_polling()
+def run_dummy_server():
+    class DummyHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is running")
+    
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), DummyHandler)
+    server.serve_forever()
+
+import threading
+threading.Thread(target=run_dummy_server, daemon=True).start()
 
 print("Бот запущен!")
 bot.infinity_polling()

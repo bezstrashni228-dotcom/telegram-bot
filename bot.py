@@ -27,11 +27,32 @@ def get_main_menu_inline():
     markup.add(types.InlineKeyboardButton('⚡️ Создать розыгрыш', callback_data='create_giveaway'))
     return markup
 
+# Вспомогательная функция для вывода каналов
+def show_channels(chat_id, user_id, message_id=None):
+    if user_id in user_channels and user_channels[user_id]:
+        markup = types.InlineKeyboardMarkup()
+        for ch_id, ch_title in user_channels[user_id].items():
+            markup.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
+        markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+        
+        if message_id:
+            try: bot.edit_message_text(chat_id=chat_id, message_id=message_id, text='В каком канале хотите опубликовать конкурс?', reply_markup=markup)
+            except: pass
+        else:
+            bot.send_message(chat_id, 'В каком канале хотите опубликовать конкурс?', reply_markup=markup)
+    else:
+        text = '❌ У тебя нет добавленных каналов. Сначала добавь меня в канал.'
+        if message_id:
+            try: bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=get_back_button())
+            except: pass
+        else:
+            bot.send_message(chat_id, text, reply_markup=get_back_button())
+
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     
-    # --- ПРОВЕРКА НА ПЕРЕХОД ИЗ КНОПКИ "УЧАСТВОВАТЬ" ---
+    # Проверка на переход из кнопки "Участвовать"
     if len(message.text.split()) > 1 and message.text.split()[1].startswith('join_'):
         try:
             msg_id = int(message.text.split()[1].split('_')[1])
@@ -90,26 +111,22 @@ def start(message):
             bot.send_message(message.chat.id, "❌ Этот розыгрыш уже завершен или не найден.")
         return
 
-    # --- ОБЫЧНЫЙ /START ---
+    # Обычный /start
     user_states.pop(user_id, None)
-    bot.send_message(message.chat.id, '👋 Привет! Я бот для создания розыгрышей.\n\nВыбери действие:', reply_markup=types.ReplyKeyboardRemove())
-    bot.send_message(message.chat.id, '⚙️ Главное меню:', reply_markup=get_main_menu_inline())
+    welcome_text = (
+        "©️ Главное меню:\n\n"
+        "❗ Важно, если ты впервые в нашем боте, то не забудь добавить канал 🖊️\n\n"
+        "Выбери действие:"
+    )
+    bot.send_message(message.chat.id, welcome_text, reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(message.chat.id, '⚙️ Меню:', reply_markup=get_main_menu_inline())
 
 # --- КОМАНДА /create ---
 @bot.message_handler(commands=['create'])
 def cmd_create(message):
     user_id = message.from_user.id
     user_states.pop(user_id, None) 
-    
-    if user_id in user_channels and user_channels[user_id]:
-        markup = types.InlineKeyboardMarkup()
-        for ch_id, ch_title in user_channels[user_id].items():
-            markup.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
-        markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-        
-        bot.send_message(message.chat.id, 'В каком канале хотите опубликовать конкурс?', reply_markup=markup)
-    else:
-        bot.send_message(message.chat.id, '❌ У тебя нет добавленных каналов. Сначала добавь меня в канал.', reply_markup=get_back_button())
+    show_channels(message.chat.id, user_id)
 
 @bot.message_handler(content_types=['text', 'forwarded'])
 def text_handler(message):
@@ -214,23 +231,8 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
 
     elif call.data == 'create_giveaway':
-        if user_id in user_channels and user_channels[user_id]:
-            markup = types.InlineKeyboardMarkup()
-            for ch_id, ch_title in user_channels[user_id].items():
-                markup.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
-            markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id, message_id=call.message.message_id,
-                text='В каком канале хотите опубликовать конкурс?',
-                reply_markup=markup
-            )
-        else:
-            bot.edit_message_text(
-                chat_id=call.message.chat.id, message_id=call.message.message_id,
-                text='❌ У тебя нет добавленных каналов. Сначала добавь меня в канал.',
-                reply_markup=get_back_button()
-            )
+        user_states.pop(user_id, None)
+        show_channels(call.message.chat.id, user_id, call.message.message_id)
         bot.answer_callback_query(call.id)
 
     elif call.data.startswith('select_ch_'):

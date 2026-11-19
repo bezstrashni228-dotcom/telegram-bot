@@ -14,7 +14,7 @@ user_states = {}
 user_channels = {} 
 active_giveaways = {} 
 
-# Inline-кнопка "Назад" (под сообщением)
+# Inline-кнопка "Назад"
 def get_back_button():
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton('🔙 Назад', callback_data='back_to_menu'))
@@ -31,11 +31,10 @@ def get_main_menu_inline():
 @bot.message_handler(commands=['start'])
 def start(message):
     user_states.pop(message.from_user.id, None)
-    bot.send_message(
-        message.chat.id, 
-        '👋 Привет! Я бот для создания розыгрышей.\n\nВыбери действие:', 
-        reply_markup=get_main_menu_inline()
-    )
+    # Удаляем нижнюю клавиатуру, если она была
+    msg = bot.send_message(message.chat.id, '👋 Привет! Я бот для создания розыгрышей.\n\nВыбери действие:', reply_markup=types.ReplyKeyboardRemove())
+    # Отправляем inline-меню
+    bot.send_message(message.chat.id, 'Главное меню:', reply_markup=get_main_menu_inline())
 
 @bot.message_handler(content_types=['text', 'forwarded'])
 def text_handler(message):
@@ -111,7 +110,6 @@ def text_handler(message):
                 bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).', reply_markup=get_back_button())
             return
 
-    # Если бот получил текст, но не ждет его — игнорируем или просим /start
     bot.send_message(message.chat.id, 'Я не понимаю. Напиши /start, чтобы открыть меню.', reply_markup=get_back_button())
 
 # --- ОБРАБОТКА INLINE-КНОПОК ---
@@ -223,7 +221,7 @@ def callback_handler(call):
             del user_states[user_id]
         bot.answer_callback_query(call.id)
 
-    # --- УЧАСТИЕ И АВТОЗАВЕРШЕНИЕ ---
+    # --- УЧАСТИЕ С ПРОВЕРКОЙ ПОДПИСКИ ---
     elif call.data == 'join_giveaway':
         msg_id = call.message.message_id
         if msg_id in active_giveaways:
@@ -232,7 +230,21 @@ def callback_handler(call):
             if user_id in giveaway['participants']:
                 bot.answer_callback_query(call.id, "Ты уже участвуешь!", show_alert=True)
                 return
-                
+
+            # --- ПРОВЕРКА ПОДПИСКИ НА КАНАЛ ---
+            try:
+                member = bot.get_chat_member(giveaway['chat_id'], user_id)
+                if member.status in ['left', 'kicked']:
+                    bot.answer_callback_query(
+                        call.id, 
+                        "❌ Ты не подписан на канал! Сначала подпишись, потом участвуй.", 
+                        show_alert=True
+                    )
+                    return
+            except Exception:
+                pass # Если бот не админ, пропускаем проверку
+
+            # Если проверка пройдена, добавляем
             giveaway['participants'].add(user_id)
             bot.answer_callback_query(call.id, "Ты успешно участвуешь! Удачи! 🍀")
             
@@ -249,7 +261,6 @@ def callback_handler(call):
                     parse_mode='Markdown', reply_markup=types.InlineKeyboardMarkup()
                 )
                 del active_giveaways[msg_id]
-                
                 try: bot.send_message(giveaway['creator_id'], f'Твой розыгрыш в канале завершился! Набралось {target} участников.')
                 except: pass
             else:
@@ -290,13 +301,16 @@ def callback_handler(call):
             except Exception:
                 bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
 
-# Фейковый сервер для Render
+# Фейковый сервер для Render (чтобы не было ошибок с портами)
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            self.send_response(200); self.end_headers(); self.wfile.write(b"Bot is running")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is running")
         def do_HEAD(self):
-            self.send_response(200); self.end_headers()
+            self.send_response(200)
+            self.end_headers()
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), DummyHandler)
     server.serve_forever()

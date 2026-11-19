@@ -417,7 +417,24 @@ def callback_handler(call):
 
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200); self.end_headers(); self.wfile.write(b"Bot is running")
-        def do_HEAD(self):
-            self.send_response(20)
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    server.serve_forever()
+
+if __name__ == '__main__':
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+    print("Бот запущен...")
+    bot.infinity_polling(skip_pending=True)

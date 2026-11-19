@@ -1,5 +1,6 @@
 import telebot
 from telebot import types
+import random
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
@@ -9,49 +10,154 @@ ADMIN_ID = 8679581943
 
 bot = telebot.TeleBot(TOKEN)
 
-# Обработка команды /start
+user_states = {}
+active_giveaways = {} 
+
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = types.KeyboardButton('👤 Мой профиль')
-    btn2 = types.KeyboardButton('⚙️ Настройки')
-    btn3 = types.KeyboardButton('⭐ Купить звезды')
+    btn2 = types.KeyboardButton('🎲 Рандомайзер')
+    btn3 = types.KeyboardButton('🎁 Создать розыгрыш')
     markup.add(btn1, btn2, btn3)
     
-    # Если пишет админ, добавляем кнопку
     if message.from_user.id == ADMIN_ID:
         btn4 = types.KeyboardButton('👑 Админ-панель')
         markup.add(btn4)
-        bot.send_message(message.chat.id, 'Привет, Босс! Выбери действие:', reply_markup=markup)
-    else:
-        bot.send_message(message.chat.id, 'Привет! Выбери действие в меню ниже:', reply_markup=markup)
+        
+    bot.send_message(message.chat.id, 'Привет! Выбери действие в меню ниже:', reply_markup=markup)
 
-# Обработка кнопок
 @bot.message_handler(content_types=['text'])
 def text_handler(message):
-    if message.text == '👤 Мой профиль':
-        bot.send_message(message.chat.id, f'Твое имя: {message.from_user.first_name}\nТвой ID: {message.chat.id}')
-    elif message.text == '⚙️ Настройки':
-        bot.send_message(message.chat.id, 'Тут будут настройки твоего аккаунта.')
-    elif message.text == '⭐ Купить звезды':
-        bot.send_message(message.chat.id, 'Обратитесь к @xorey_big')
-    elif message.text == '👑 Админ-панель' and message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, f'Добро пожаловать в админку!\nТвой ID: {message.from_user.id}\nВсего пользователей: [пока не считаем]')
-    else:
-        bot.send_message(message.chat.id, 'Я не знаю такой команды. Нажми /start, чтобы открыть меню.')
+    user_id = message.from_user.id
 
-# Фейковый веб-сервер для Render
+    # --- РАНДОМАЙЗЕР ---
+    if message.text == '🎲 Рандомайзер':
+        user_states[user_id] = 'waiting_for_list'
+        bot.send_message(message.chat.id, 'Отправь мне список вариантов через запятую.')
+    elif user_states.get(user_id) == 'waiting_for_list':
+        items = [item.strip() for item in message.text.replace('\n', ',').split(',') if item.strip()]
+        if len(items) < 2:
+            bot.send_message(message.chat.id, 'Нужно хотя бы два варианта!')
+        else:
+            winner = random.choice(items)
+            bot.send_message(message.chat.id, f'🎲 Мой выбор: **{winner}**!', parse_mode='Markdown')
+        del user_states[user_id]
+
+    # --- СОЗДАНИЕ РОЗЫГРЫША ---
+    elif message.text == '🎁 Создать розыгрыш':
+        user_states[user_id] = {'step': 'waiting_for_prize'}
+        bot.send_message(message.chat.id, 'Введи название приза (например, "100 рублей").')
+
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_prize':
+        user_states[user_id]['prize'] = message.text
+        user_states[user_id]['step'] = 'waiting_for_count'
+        bot.send_message(message.chat.id, 'Отлично! Сколько победителей будет? (напиши число, например, 1)')
+
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_count':
+        try:
+            winner_count = int(message.text)
+            prize = user_states[user_id]['prize']
+            
+            markup = types.InlineKeyboardMarkup()
+            btn_join = types.InlineKeyboardButton('✅ Участвовать', callback_data='join_giveaway')
+            btn_finish = types.InlineKeyboardButton('🏁 Завершить', callback_data='finish_giveaway')
+            markup.add(btn_join)
+            markup.add(btn_finish)
+            
+            sent_msg = bot.send_message(message.chat.id, f'🎁 **РОЗЫГРЫШ!**\n\nПриз: {prize}\nПобедителей: {winner_count}\nУчастников: 0\n\nНажми кнопку ниже, чтобы участвовать!', reply_markup=markup, parse_mode='Markdown')
+            
+            active_giveaways[sent_msg.message_id] = {
+                'participants': set(), 
+                'winner_count': winner_count, 
+                'chat_id': message.chat.id,
+                'creator_id': user_id, 
+                'prize': prize
+            }
+            
+            del user_states[user_id]
+        except ValueError:
+            bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
+
+    # --- ОСТАЛЬНЫЕ КНОПКИ ---
+    elif message.text == '👤 Мой профиль':
+        bot.send_message(message.chat.id, f'Твое имя: {message.from_user.first_name}\nТвой ID: {message.chat.id}')
+    elif message.text == '👑 Админ-панель' and user_id == ADMIN_ID:
+        bot.send_message(message.chat.id, 'Тут ты можешь управлять ботом.')
+    else:
+        bot.send_message(message.chat.id, 'Я не знаю такой команды. Нажми /start.')
+
+# --- ОБРАБОТКА INLINE-КНОПОК ---
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    msg_id = call.message.message_id
+    
+    if call.data == 'join_giveaway':
+        if msg_id in active_giveaways:
+            giveaway = active_giveaways[msg_id]
+            user_id = call.from_user.id
+            
+            if user_id in giveaway['participants']:
+                bot.answer_callback_query(call.id, "Ты уже участвуешь!", show_alert=True)
+            else:
+                giveaway['participants'].add(user_id)
+                bot.answer_callback_query(call.id, "Ты успешно участвуешь! Удачи! 🍀")
+                
+                count = len(giveaway['participants'])
+                try:
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=msg_id,
+                        text=f'🎁 **РОЗЫГРЫШ!**\n\nПриз: {giveaway["prize"]}\nПобедителей: {giveaway["winner_count"]}\nУчастников: {count}\n\nНажми кнопку ниже, чтобы участвовать!',
+                        reply_markup=call.message.reply_markup,
+                        parse_mode='Markdown'
+                    )
+                except:
+                    pass
+
+    elif call.data == 'finish_giveaway':
+        if msg_id in active_giveaways:
+            giveaway = active_giveaways[msg_id]
+            
+            # Проверяем, что нажал именно создатель
+            if call.from_user.id != giveaway['creator_id']:
+                bot.answer_callback_query(call.id, "Только создатель розыгрыша может его завершить!", show_alert=True)
+                return
+
+            participants = list(giveaway['participants'])
+            
+            if not participants:
+                bot.answer_callback_query(call.id, "Никто не участвовал в розыгрыше!", show_alert=True)
+                return
+                
+            winner_count = min(giveaway['winner_count'], len(participants))
+            winners = random.sample(participants, winner_count)
+            
+            # Формируем имена победителей (телеграм не всегда дает username, поэтому шлем ID и просим написать)
+            winners_text = ", ".join([f"[Пользователь](tg://user?id={w})" for w in winners])
+            
+            # Меняем сообщение на итог
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=msg_id,
+                text=f'🎁 **РОЗЫГРЫШ ЗАВЕРШЕН!**\n\nПриз: {giveaway["prize"]}\n\n🏆 **Победители:**\n{winners_text}\n\nПоздравляем!',
+                parse_mode='Markdown',
+                reply_markup=None # Убираем кнопки
+            )
+            
+            # Удаляем розыгрыш из памяти
+            del active_giveaways[msg_id]
+
+# Фейковый сервер для Render
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"Bot is running")
-
         def do_HEAD(self):
             self.send_response(200)
             self.end_headers()
-            
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), DummyHandler)
     server.serve_forever()

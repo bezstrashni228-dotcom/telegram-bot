@@ -7,7 +7,7 @@ import threading
 
 TOKEN = '9132199477:AAERWdgbEEotj2Hx0qcJadx604lGZFv3CqQ' 
 ADMIN_ID = 8679581943 
-BOT_USERNAME = 'xoreygram_bot' # Твой username бота (без @)
+BOT_USERNAME = 'xoreygram_bot' 
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -33,8 +33,12 @@ def start(message):
     
     # --- ПРОВЕРКА НА ПЕРЕХОД ИЗ КНОПКИ "УЧАСТВОВАТЬ" ---
     if len(message.text.split()) > 1 and message.text.split()[1].startswith('join_'):
-        msg_id = int(message.text.split()[1].split('_')[1])
-        
+        try:
+            msg_id = int(message.text.split()[1].split('_')[1])
+        except (ValueError, IndexError):
+            bot.send_message(message.chat.id, "❌ Неверная ссылка.")
+            return
+
         if msg_id in active_giveaways:
             giveaway = active_giveaways[msg_id]
             
@@ -42,7 +46,6 @@ def start(message):
                 bot.send_message(message.chat.id, "Ты уже участвуешь в этом розыгрыше! 🍀")
                 return
 
-            # Проверка подписки
             try:
                 member = bot.get_chat_member(giveaway['chat_id'], user_id)
                 if member.status in ['left', 'kicked']:
@@ -51,14 +54,12 @@ def start(message):
             except Exception:
                 pass 
 
-            # Добавляем в участники
             giveaway['participants'].add(user_id)
             bot.send_message(message.chat.id, "✅ Вы участвуете в конкурсе! Удачи! 🍀")
             
             count = len(giveaway['participants'])
             target = giveaway['target_count']
             
-            # Обновляем сообщение в канале
             if count >= target:
                 winners = random.sample(list(giveaway['participants']), min(giveaway['winners_count'], count))
                 winners_text = ", ".join([f"[Пользователь](tg://user?id={w})" for w in winners])
@@ -72,12 +73,11 @@ def start(message):
                 except: pass
                 
                 del active_giveaways[msg_id]
-                try: bot.send_message(giveaway['creator_id'], f'Твой розыгрыш в канале завершился! Набралось {target} участников.')
+                try: bot.send_message(giveaway['creator_id'], f'Твой розыгрыш завершился! Набралось {target} участников.')
                 except: pass
             else:
                 try:
                     markup = types.InlineKeyboardMarkup()
-                    # Кнопка теперь ведет в бота, а не обрабатывается колбэком
                     markup.add(types.InlineKeyboardButton('🎮 Участвовать', url=f'https://t.me/{BOT_USERNAME}?start=join_{msg_id}'))
                     
                     bot.edit_message_text(
@@ -90,11 +90,12 @@ def start(message):
             bot.send_message(message.chat.id, "❌ Этот розыгрыш уже завершен или не найден.")
         return
 
-    # Обычный /start
+    # --- ОБЫЧНЫЙ /START ---
     user_states.pop(user_id, None)
     bot.send_message(message.chat.id, '👋 Привет! Я бот для создания розыгрышей.\n\nВыбери действие:', reply_markup=types.ReplyKeyboardRemove())
     bot.send_message(message.chat.id, '⚙️ Главное меню:', reply_markup=get_main_menu_inline())
 
+# --- КОМАНДА /create ---
 @bot.message_handler(commands=['create'])
 def cmd_create(message):
     user_id = message.from_user.id
@@ -254,14 +255,12 @@ def callback_handler(call):
             target = state['target_count']
             winners_count = state['winners_count']
             
-            # Создаем кнопку с URL
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton('🎮 Участвовать', url=f'https://t.me/{BOT_USERNAME}?start=join_pending'))
             
             try:
                 sent_msg = bot.send_message(channel_id, f'{text}\n\n🎯 **Цель:** {target} участников\n🏆 **Победителей:** {winners_count}\n👥 **Сейчас:** 0\n\nНажми кнопку ниже, чтобы участвовать!', reply_markup=markup, parse_mode='Markdown')
                 
-                # Теперь, когда сообщение отправлено, мы знаем его ID. Обновляем кнопку!
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton('🎮 Участвовать', url=f'https://t.me/{BOT_USERNAME}?start=join_{sent_msg.message_id}'))
                 bot.edit_message_reply_markup(channel_id, sent_msg.message_id, reply_markup=markup)
@@ -294,7 +293,6 @@ def callback_handler(call):
             del user_states[user_id]
         bot.answer_callback_query(call.id)
 
-    # --- УЧАСТИЕ ЧЕРЕЗ CALLBACK (ЕСЛИ КТО-ТО ЖМЕТ СТАРУЮ КНОПКУ) ---
     elif call.data == 'join_giveaway':
         bot.answer_callback_query(call.id, "Пожалуйста, нажмите на кнопку 'Участвовать' в сообщении канала, чтобы перейти в бота.", show_alert=True)
 
@@ -326,7 +324,6 @@ def callback_handler(call):
             except Exception:
                 bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
 
-# Фейковый сервер для Render
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):

@@ -28,9 +28,65 @@ def start(message):
         
     bot.send_message(message.chat.id, 'Привет! Выбери действие в меню ниже:', reply_markup=markup)
 
-@bot.message_handler(content_types=['text'])
+# Главный обработчик текста
+@bot.message_handler(content_types=['text', 'forwarded'])
 def text_handler(message):
     user_id = message.from_user.id
+
+    # --- ЕСЛИ МЫ ЖДЕМ ID КАНАЛА (обрабатываем это здесь) ---
+    if isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_id':
+        if message.forward_from_chat:
+            channel_id = message.forward_from_chat.id
+        else:
+            try:
+                channel_id = int(message.text) 
+            except ValueError:
+                bot.send_message(message.chat.id, 'Это не похоже на ID канала. Попробуй переслать сообщение из канала.')
+                return
+                
+        user_states[user_id]['channel_id'] = channel_id
+        user_states[user_id]['step'] = 'waiting_for_channel_prize'
+        bot.send_message(message.chat.id, 'Канал добавлен! Теперь введи название приза.')
+        return # <--- Важно! Прерываем выполнение, чтобы не сработали другие кнопки
+
+    # --- ЕСЛИ МЫ ЖДЕМ ПРИЗ ДЛЯ КАНАЛА ---
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_prize':
+        user_states[user_id]['prize'] = message.text
+        user_states[user_id]['step'] = 'waiting_for_channel_count'
+        bot.send_message(message.chat.id, 'Сколько победителей будет? (напиши число)')
+        return
+
+    # --- ЕСЛИ МЫ ЖДЕМ КОЛИЧЕСТВО ПОБЕДИТЕЛЕЙ ДЛЯ КАНАЛА ---
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_count':
+        try:
+            winner_count = int(message.text)
+            prize = user_states[user_id]['prize']
+            channel_id = user_states[user_id]['channel_id']
+            
+            markup = types.InlineKeyboardMarkup()
+            btn_join = types.InlineKeyboardButton('✅ Участвовать', callback_data='join_giveaway')
+            btn_finish = types.InlineKeyboardButton('🏁 Завершить', callback_data='finish_giveaway')
+            markup.add(btn_join)
+            markup.add(btn_finish)
+            
+            try:
+                sent_msg = bot.send_message(channel_id, f'🎁 **РОЗЫГРЫШ!**\n\nПриз: {prize}\nПобедителей: {winner_count}\nУчастников: 0\n\nНажми кнопку ниже, чтобы участвовать!', reply_markup=markup, parse_mode='Markdown')
+                
+                active_giveaways[sent_msg.message_id] = {
+                    'participants': set(), 
+                    'winner_count': winner_count, 
+                    'chat_id': channel_id, 
+                    'creator_id': user_id, 
+                    'prize': prize
+                }
+                bot.send_message(message.chat.id, 'Розыгрыш успешно опубликован в канале!')
+            except Exception as e:
+                bot.send_message(message.chat.id, '❌ Я не могу писать в этот канал.\n\nПожалуйста, добавь меня в администраторы канала и дай право "Публикация сообщений"!')
+            
+            del user_states[user_id]
+        except ValueError:
+            bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
+        return
 
     # --- РАНДОМАЙЗЕР ---
     if message.text == '🎲 Рандомайзер':
@@ -80,7 +136,7 @@ def text_handler(message):
         except ValueError:
             bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
 
-    # --- РОЗЫГРЫШ В КАНАЛЕ (ДЛЯ ВСЕХ) ---
+    # --- РОЗЫГРЫШ В КАНАЛЕ (ЗАПУСК) ---
     elif message.text == '📢 Розыгрыш в канале':
         user_states[user_id] = {'step': 'waiting_for_channel_id'}
         bot.send_message(message.chat.id, 'Отправь ID твоего канала (например, -1001234567890) или перешли сюда сообщение из канала.\n\n⚠️ Важно: я должен быть админом в канале с правом публикации!')
@@ -95,7 +151,7 @@ def text_handler(message):
     else:
         bot.send_message(message.chat.id, 'Я не знаю такой команды. Нажми /start.')
 
-# --- ОБРАБОТКА INLINE-КНОПОК ---
+# --- ОБРАБОТКА INLINE-КНОПОК (БЕЗ ИЗМЕНЕНИЙ) ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     msg_id = call.message.message_id
@@ -151,64 +207,6 @@ def callback_handler(call):
             )
             
             del active_giveaways[msg_id]
-
-# --- ОБРАБОТКА ТЕКСТА (ДЛЯ КАНАЛА) ---
-@bot.message_handler(content_types=['text', 'forwarded'])
-def handle_channel_setup(message):
-    user_id = message.from_user.id
-    
-    # Ловим ID канала
-    if isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_id':
-        if message.forward_from_chat:
-            channel_id = message.forward_from_chat.id
-        else:
-            try:
-                channel_id = int(message.text) # Пытаемся преобразовать в число
-            except ValueError:
-                bot.send_message(message.chat.id, 'Это не похоже на ID канала. Попробуй переслать сообщение из канала.')
-                return
-                
-        user_states[user_id]['channel_id'] = channel_id
-        user_states[user_id]['step'] = 'waiting_for_channel_prize'
-        bot.send_message(message.chat.id, 'Канал добавлен! Теперь введи название приза.')
-
-    # Приз для канала
-    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_prize':
-        user_states[user_id]['prize'] = message.text
-        user_states[user_id]['step'] = 'waiting_for_channel_count'
-        bot.send_message(message.chat.id, 'Сколько победителей будет? (напиши число)')
-
-    # Количество победителей для канала
-    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_count':
-        try:
-            winner_count = int(message.text)
-            prize = user_states[user_id]['prize']
-            channel_id = user_states[user_id]['channel_id']
-            
-            markup = types.InlineKeyboardMarkup()
-            btn_join = types.InlineKeyboardButton('✅ Участвовать', callback_data='join_giveaway')
-            btn_finish = types.InlineKeyboardButton('🏁 Завершить', callback_data='finish_giveaway')
-            markup.add(btn_join)
-            markup.add(btn_finish)
-            
-            # Публикуем в канал
-            try:
-                sent_msg = bot.send_message(channel_id, f'🎁 **РОЗЫГРЫШ!**\n\nПриз: {prize}\nПобедителей: {winner_count}\nУчастников: 0\n\nНажми кнопку ниже, чтобы участвовать!', reply_markup=markup, parse_mode='Markdown')
-                
-                active_giveaways[sent_msg.message_id] = {
-                    'participants': set(), 
-                    'winner_count': winner_count, 
-                    'chat_id': channel_id, 
-                    'creator_id': user_id, 
-                    'prize': prize
-                }
-                bot.send_message(message.chat.id, 'Розыгрыш успешно опубликован в канале!')
-            except Exception as e:
-                bot.send_message(message.chat.id, f'Ошибка при отправке в канал. Убедись, что бот админ и имеет права на публикацию. Ошибка: {e}')
-            
-            del user_states[user_id]
-        except ValueError:
-            bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
 
 # Фейковый сервер для Render
 def run_dummy_server():

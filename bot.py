@@ -5,7 +5,7 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-TOKEN = '9132199477:AAF2OR95y3cE4K0vBn0KMx0KmtkIsHO_EYE' 
+TOKEN = 'ТВОЙ_ТОКЕН_СЮДА' 
 ADMIN_ID = 8679581943 
 
 bot = telebot.TeleBot(TOKEN)
@@ -19,11 +19,12 @@ def start(message):
     btn1 = types.KeyboardButton('👤 Мой профиль')
     btn2 = types.KeyboardButton('🎲 Рандомайзер')
     btn3 = types.KeyboardButton('🎁 Создать розыгрыш')
-    markup.add(btn1, btn2, btn3)
+    btn4 = types.KeyboardButton('📢 Розыгрыш в канале')
+    markup.add(btn1, btn2, btn3, btn4)
     
     if message.from_user.id == ADMIN_ID:
-        btn4 = types.KeyboardButton('👑 Админ-панель')
-        markup.add(btn4)
+        btn5 = types.KeyboardButton('👑 Админ-панель')
+        markup.add(btn5)
         
     bot.send_message(message.chat.id, 'Привет! Выбери действие в меню ниже:', reply_markup=markup)
 
@@ -44,7 +45,7 @@ def text_handler(message):
             bot.send_message(message.chat.id, f'🎲 Мой выбор: **{winner}**!', parse_mode='Markdown')
         del user_states[user_id]
 
-    # --- СОЗДАНИЕ РОЗЫГРЫША ---
+    # --- СОЗДАНИЕ РОЗЫГРЫША (В БОТЕ) ---
     elif message.text == '🎁 Создать розыгрыш':
         user_states[user_id] = {'step': 'waiting_for_prize'}
         bot.send_message(message.chat.id, 'Введи название приза (например, "100 рублей").')
@@ -79,11 +80,18 @@ def text_handler(message):
         except ValueError:
             bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
 
+    # --- РОЗЫГРЫШ В КАНАЛЕ (ДЛЯ ВСЕХ) ---
+    elif message.text == '📢 Розыгрыш в канале':
+        user_states[user_id] = {'step': 'waiting_for_channel_id'}
+        bot.send_message(message.chat.id, 'Отправь ID твоего канала (например, -1001234567890) или перешли сюда сообщение из канала.\n\n⚠️ Важно: я должен быть админом в канале с правом публикации!')
+
+    # --- АДМИН-ПАНЕЛЬ ---
+    elif message.text == '👑 Админ-панель' and user_id == ADMIN_ID:
+        bot.send_message(message.chat.id, 'Тут ты можешь управлять ботом.')
+
     # --- ОСТАЛЬНЫЕ КНОПКИ ---
     elif message.text == '👤 Мой профиль':
         bot.send_message(message.chat.id, f'Твое имя: {message.from_user.first_name}\nТвой ID: {message.chat.id}')
-    elif message.text == '👑 Админ-панель' and user_id == ADMIN_ID:
-        bot.send_message(message.chat.id, 'Тут ты можешь управлять ботом.')
     else:
         bot.send_message(message.chat.id, 'Я не знаю такой команды. Нажми /start.')
 
@@ -119,7 +127,6 @@ def callback_handler(call):
         if msg_id in active_giveaways:
             giveaway = active_giveaways[msg_id]
             
-            # Проверяем, что нажал именно создатель
             if call.from_user.id != giveaway['creator_id']:
                 bot.answer_callback_query(call.id, "Только создатель розыгрыша может его завершить!", show_alert=True)
                 return
@@ -133,20 +140,75 @@ def callback_handler(call):
             winner_count = min(giveaway['winner_count'], len(participants))
             winners = random.sample(participants, winner_count)
             
-            # Формируем имена победителей (телеграм не всегда дает username, поэтому шлем ID и просим написать)
             winners_text = ", ".join([f"[Пользователь](tg://user?id={w})" for w in winners])
             
-            # Меняем сообщение на итог
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=msg_id,
                 text=f'🎁 **РОЗЫГРЫШ ЗАВЕРШЕН!**\n\nПриз: {giveaway["prize"]}\n\n🏆 **Победители:**\n{winners_text}\n\nПоздравляем!',
                 parse_mode='Markdown',
-                reply_markup=None # Убираем кнопки
+                reply_markup=types.InlineKeyboardMarkup()
             )
             
-            # Удаляем розыгрыш из памяти
             del active_giveaways[msg_id]
+
+# --- ОБРАБОТКА ТЕКСТА (ДЛЯ КАНАЛА) ---
+@bot.message_handler(content_types=['text', 'forwarded'])
+def handle_channel_setup(message):
+    user_id = message.from_user.id
+    
+    # Ловим ID канала
+    if isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_id':
+        if message.forward_from_chat:
+            channel_id = message.forward_from_chat.id
+        else:
+            try:
+                channel_id = int(message.text) # Пытаемся преобразовать в число
+            except ValueError:
+                bot.send_message(message.chat.id, 'Это не похоже на ID канала. Попробуй переслать сообщение из канала.')
+                return
+                
+        user_states[user_id]['channel_id'] = channel_id
+        user_states[user_id]['step'] = 'waiting_for_channel_prize'
+        bot.send_message(message.chat.id, 'Канал добавлен! Теперь введи название приза.')
+
+    # Приз для канала
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_prize':
+        user_states[user_id]['prize'] = message.text
+        user_states[user_id]['step'] = 'waiting_for_channel_count'
+        bot.send_message(message.chat.id, 'Сколько победителей будет? (напиши число)')
+
+    # Количество победителей для канала
+    elif isinstance(user_states.get(user_id), dict) and user_states[user_id].get('step') == 'waiting_for_channel_count':
+        try:
+            winner_count = int(message.text)
+            prize = user_states[user_id]['prize']
+            channel_id = user_states[user_id]['channel_id']
+            
+            markup = types.InlineKeyboardMarkup()
+            btn_join = types.InlineKeyboardButton('✅ Участвовать', callback_data='join_giveaway')
+            btn_finish = types.InlineKeyboardButton('🏁 Завершить', callback_data='finish_giveaway')
+            markup.add(btn_join)
+            markup.add(btn_finish)
+            
+            # Публикуем в канал
+            try:
+                sent_msg = bot.send_message(channel_id, f'🎁 **РОЗЫГРЫШ!**\n\nПриз: {prize}\nПобедителей: {winner_count}\nУчастников: 0\n\nНажми кнопку ниже, чтобы участвовать!', reply_markup=markup, parse_mode='Markdown')
+                
+                active_giveaways[sent_msg.message_id] = {
+                    'participants': set(), 
+                    'winner_count': winner_count, 
+                    'chat_id': channel_id, 
+                    'creator_id': user_id, 
+                    'prize': prize
+                }
+                bot.send_message(message.chat.id, 'Розыгрыш успешно опубликован в канале!')
+            except Exception as e:
+                bot.send_message(message.chat.id, f'Ошибка при отправке в канал. Убедись, что бот админ и имеет права на публикацию. Ошибка: {e}')
+            
+            del user_states[user_id]
+        except ValueError:
+            bot.send_message(message.chat.id, 'Пожалуйста, введи число (например, 1).')
 
 # Фейковый сервер для Render
 def run_dummy_server():

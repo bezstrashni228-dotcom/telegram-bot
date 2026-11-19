@@ -5,7 +5,7 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-TOKEN = '9132199477:AAF2OR95y3cE4K0vBn0KMx0KmtkIsHO_EYE' 
+TOKEN = '9132199477:AAHaRvWbWNOBO40ajHpzjtpTq6JR1trNkQs' 
 ADMIN_ID = 8679581943 
 
 bot = telebot.TeleBot(TOKEN)

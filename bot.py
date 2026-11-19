@@ -416,7 +416,7 @@ def callback_handler(call):
                 bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
 
 def run_dummy_server():
-    class DummyHandler(BaseHTTPRequestHandler):
+class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()

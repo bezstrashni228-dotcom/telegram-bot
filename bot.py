@@ -1,415 +1,558 @@
 import telebot
 from telebot import types
-import random
-import os
-import html
+import random, os, html, json, threading
+from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 
-TOKEN = '9132199477:AAERWdgbEEotj2Hx0qcJadx604lGZFv3CqQ'
+TOKEN = '9132199477:AAFFLqu7pCZHiRqhfUJuf7uHqvFNDlHllhg'
 ADMIN_ID = 8679581943
+DATA_FILE = 'bot_data.json'
 
 bot = telebot.TeleBot(TOKEN)
-BOT_USERNAME = bot.get_me().username
+try:
+    BOT_USERNAME = bot.get_me().username.strip()
+except Exception:
+    BOT_USERNAME = 'xoreygram_bot'
+
+BASE_TG_URL = "https://t.me" + "/"
+TZ_MSK = timezone(timedelta(hours=3))
 
 user_states = {}
 user_channels = {}
 active_giveaways = {}
+finished_giveaways = {}
+pending_captchas = {}
+
+def get_now_str():
+    return datetime.now(TZ_MSK).strftime("%d.%m.%Y в %H:%M")
+
+def make_join_button(btn_text, btn_color, count, url):
+    prefixes = {'blue': '🔵 ', 'red': '🔴 ', 'green': '🟢 ', 'default': ''}
+    styles = {'blue': 'primary', 'red': 'danger', 'green': 'success'}
+    label = f"{prefixes.get(btn_color, '')}{btn_text} ({count})"
+    style_val = styles.get(btn_color)
+    if style_val:
+        try:
+            return types.InlineKeyboardButton(label, url=url, style=style_val)
+        except TypeError:
+            pass
+    return types.InlineKeyboardButton(label, url=url)
+
+def load_data():
+    global user_channels, active_giveaways, finished_giveaways
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for uid, chs in data.get('user_channels', {}).items():
+                    user_channels[int(uid)] = {int(cid): t for cid, t in chs.items()}
+                for mid, gw in data.get('active_giveaways', {}).items():
+                    gw['participants'] = set(gw.get('participants', []))
+                    active_giveaways[int(mid)] = gw
+                for mid, fgw in data.get('finished_giveaways', {}).items():
+                    finished_giveaways[int(mid)] = fgw
+        except Exception as e:
+            print(f"Ошибка загрузки: {e}")
+
+def save_data():
+    try:
+        gw_save = {}
+        for mid, gw in active_giveaways.items():
+            c = gw.copy()
+            c['participants'] = list(gw['participants'])
+            gw_save[str(mid)] = c
+        ch_save = {str(u): {str(c): t for c, t in chs.items()} for u, chs in user_channels.items()}
+        fgw_save = {str(m): f for m, f in finished_giveaways.items()}
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'user_channels': ch_save, 'active_giveaways': gw_save, 'finished_giveaways': fgw_save}, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Ошибка сохранения: {e}")
+
+load_data()
 
 def get_back_button():
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-    return markup
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+    return m
 
-def get_main_menu_inline():
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton('👾 Мой профиль', callback_data='my_profile'))
-    markup.add(types.InlineKeyboardButton('🔗 Добавить канал', callback_data='add_channel'))
-    markup.add(types.InlineKeyboardButton('⚡️ Создать розыгрыш', callback_data='create_giveaway'))
-    return markup
+def get_bottom_keyboard():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(types.KeyboardButton('⚡️ Создать розыгрыш'), types.KeyboardButton('📡 Мои каналы'))
+    return kb
+
+def get_main_menu_inline(user_id):
+    m = types.InlineKeyboardMarkup()
+    if user_id in user_channels and user_channels[user_id]:
+        for ch_id, ch_title in user_channels[user_id].items():
+            m.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
+    m.add(types.InlineKeyboardButton('🔗 Добавить канал', callback_data='add_channel'))
+    return m
+
+def get_my_channels_markup(user_id):
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton('➕ Добавление новых каналов', callback_data='add_channel'))
+    if user_id in user_channels and user_channels[user_id]:
+        for ch_id, ch_title in user_channels[user_id].items():
+            m.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
+    m.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+    return m
+
+def get_welcome_text():
+    return "👋 Привет, вот доступные тебе команды\n<blockquote>🎁 /create — создание розыгрыша\n📡 /mychannels — мои каналы</blockquote>\n❗️ <i>Важно: если ты впервые в нашем боте, не забудь сначала добавить канал.</i>"
+        def ask_required_channels_step(chat_id):
+    txt = f"➕Добавьте каналы для обязательной подписки (основной канал уже включен).\n\n1. Добавьте @{BOT_USERNAME} в админы канала.\n2. Отправьте @юзернейм или перешлите пост.\n\n💬 Или нажмите кнопку ниже:"
+    mk = types.InlineKeyboardMarkup()
+    mk.add(types.InlineKeyboardButton('📢 Без обязательных подписок', callback_data='no_required_subs'))
+    mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+    bot.send_message(chat_id, txt, reply_markup=mk)
 
 def show_channels(chat_id, user_id, message_id=None):
     if user_id in user_channels and user_channels[user_id]:
-        markup = types.InlineKeyboardMarkup()
+        m = types.InlineKeyboardMarkup()
         for ch_id, ch_title in user_channels[user_id].items():
-            markup.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
-        markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-        
+            m.add(types.InlineKeyboardButton(f'📡 {ch_title}', callback_data=f'select_ch_{ch_id}'))
+        m.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
         if message_id:
             try:
-                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text='В каком канале хотите опубликовать конкурс?', reply_markup=markup)
+                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text='В каком канале хотите опубликовать конкурс?', reply_markup=m)
             except Exception:
                 pass
         else:
-            bot.send_message(chat_id, 'В каком канале хотите опубликовать конкурс?', reply_markup=markup)
+            bot.send_message(chat_id, 'В каком канале хотите опубликовать конкурс?', reply_markup=m)
     else:
-        text = '❌ У тебя нет добавленных каналов. Сначала добавь меня в канал.'
+        txt = '❌ У тебя нет добавленных каналов. Сначала добавь меня в канал.'
         if message_id:
             try:
-                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=get_back_button())
+                bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=txt, reply_markup=get_back_button())
             except Exception:
                 pass
         else:
-            bot.send_message(chat_id, text, reply_markup=get_back_button())
+            bot.send_message(chat_id, txt, reply_markup=get_back_button())
+
+def publish_results(giveaway, winners, is_auto=False):
+    w_txt = ", ".join([f'<a href="tg://user?id={w}">Победитель</a>' for w in winners])
+    head = "🎉 <b>Розыгрыш завершен!</b>\n\nНабралось нужное количество участников, и мы готовы объявить победителей!" if is_auto else "🎊 <b>Розыгрыш завершен досрочно!</b>\n\nСоздатель решил не ждать полного набора участников и объявил победителей."
+    res_txt = f"{head}\n\n🏆 <b>Победители:</b>\n{w_txt}\n\nПоздравляем! 🥳 С вами свяжется создатель розыгрыша для получения приза."
+    try:
+        bot.send_message(giveaway['chat_id'], res_txt, parse_mode='HTML')
+    except Exception as e:
+        print(f"Ошибка отправки итогов: {e}")
+
+def send_captcha_challenge(chat_id, user_id, msg_id):
+    a = random.randint(3, 19)
+    b = random.randint(2, 15)
+    ans = a + b
+    pending_captchas[user_id] = {'msg_id': msg_id, 'ans': ans}
+    options = {ans}
+    while len(options) < 4:
+        options.add(ans + random.choice([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]))
+    opts = list(options)
+    random.shuffle(opts)
+    mk = types.InlineKeyboardMarkup()
+    mk.add(*[types.InlineKeyboardButton(str(o), callback_data=f'cap_{msg_id}_{o}') for o in opts])
+    bot.send_message(chat_id, f"🤖 <b>Проверка на бота!</b>\n\nРешите пример, чтобы участвовать:\n<b>{a} + {b} = ?</b>", parse_mode='HTML', reply_markup=mk)
+
+def get_unsubscribed_markup(channels, msg_id):
+    mk = types.InlineKeyboardMarkup()
+    for idx, ch_id in enumerate(channels, 1):
+        try:
+            chat = bot.get_chat(ch_id)
+            title = chat.title or f"Канал {idx}"
+            url = f"{BASE_TG_URL}{chat.username}" if chat.username else (chat.invite_link or bot.export_chat_invite_link(ch_id))
+            if url:
+                mk.add(types.InlineKeyboardButton(f"📢 Подписаться: {title}", url=url))
+        except Exception:
+            pass
+    mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"))
+    return mk
+
+def register_participant(chat_id, user_id, msg_id):
+    if msg_id not in active_giveaways:
+        bot.send_message(chat_id, "❌ Этот розыгрыш уже завершен или не найден.")
+        return
+    gw = active_giveaways[msg_id]
+    if user_id in gw['participants']:
+        bot.send_message(chat_id, "Ты уже участвуешь в этом розыгрыше! 🍀")
+        return
+    gw['participants'].add(user_id)
+    save_data()
+    bot.send_message(chat_id, "✅ Вы участвуете в розыгрыше! Удачи! 🍀")
+    cnt = len(gw['participants'])
+    target = gw['target_count']
+    safe_t = html.escape(gw['text'])
+    if cnt >= target:
+        winners = random.sample(list(gw['participants']), min(gw['winners_count'], cnt))
+        finished_giveaways[msg_id] = {'text': gw['text'], 'winners': winners, 'total_participants': cnt, 'start_time': gw.get('start_time', 'Неизвестно'), 'end_time': get_now_str()}
+        res_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=results_{msg_id}"
+        fm = types.InlineKeyboardMarkup()
+        fm.add(types.InlineKeyboardButton('📊 Проверить результаты', url=res_url))
+        try:
+            bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=safe_t, parse_mode='HTML', reply_markup=fm)
+        except Exception:
+            pass
+        publish_results(gw, winners, is_auto=True)
+        del active_giveaways[msg_id]
+        save_data()
+        try:
+            bot.send_message(gw['creator_id'], f'Твой розыгрыш завершился! Набралось {target} участников.')
+        except Exception:
+            pass
+    else:
+        upd_p = f"{safe_t}\n\n🎯 <b>Цель:</b> {target} участников\n🏆 <b>Победителей:</b> {gw['winners_count']}\n👥 <b>Сейчас:</b> {cnt}\n\nНажми кнопку ниже, чтобы участвовать!"
+        try:
+            j_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"
+            mk = types.InlineKeyboardMarkup()
+            mk.add(make_join_button(gw.get('btn_text', '🎮 Участвовать'), gw.get('btn_color', 'default'), cnt, j_url))
+            bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=upd_p, parse_mode='HTML', reply_markup=mk)
+        except Exception:
+            pass
 
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    user_states.pop(user_id, None)
-    welcome_text = (
-        "©️ Главное меню:\n\n"
-        "❗ Важно, если ты впервые в нашем боте, то не забудь добавить канал 🖊️\n\n"
-        "Выбери действие:"
-    )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=types.ReplyKeyboardRemove())
-    bot.send_message(message.chat.id, '⚙️ Меню:', reply_markup=get_main_menu_inline())
+    parts = message.text.split()
+    
+    if len(parts) > 1 and parts[-1].startswith('results_'):
+        try:
+            msg_id = int(parts[-1].replace('results_', ''))
+        except Exception:
+            bot.send_message(message.chat.id, "❌ Неверная ссылка на результаты.")
+            return
+        if msg_id in finished_giveaways:
+            res = finished_giveaways[msg_id]
+            w_list = [f"• <a href='tg://user?id={w}'>Победитель</a> (ID: <code>{w}</code>)" for w in res.get('winners', [])]
+            w_block = "\n".join(w_list) if w_list else "Не определены"
+            safe_t = html.escape(res.get('text', ''))
+            info = f"📊 <b>Результаты розыгрыша</b>\n\n📝 <b>Конкурс:</b> {safe_t}\n\n🏆 <b>Победители:</b>\n{w_block}\n\n👥 <b>Всего участников:</b> {res.get('total_participants', 0)}\n🕒 <b>Начало:</b> {res.get('start_time', 'Неизвестно')}\n🏁 <b>Завершение:</b> {res.get('end_time', 'Неизвестно')}"
+            bot.send_message(message.chat.id, info, parse_mode='HTML', reply_markup=get_back_button())
+        else:
+            bot.send_message(message.chat.id, "❌ Результаты этого розыгрыша не найдены или он ещё не завершён.")
+        return
 
+    if len(parts) > 1 and parts[-1].startswith('join_'):
+        try:
+            msg_id = int(parts[-1].replace('join_', ''))
+        except Exception:
+            bot.send_message(message.chat.id, "❌ Неверная ссылка.")
+            return
+        if msg_id in active_giveaways:
+            gw = active_giveaways[msg_id]
+            if user_id in gw['participants']:
+                bot.send_message(message.chat.id, "Ты уже участвуешь в этом розыгрыше! 🍀")
+                return
+            channels_to_check = list(set(gw.get('required_channels', []) + [gw['chat_id']]))
+            not_sub = []
+            for req_ch in channels_to_check:
+                try:
+                    m = bot.get_chat_member(req_ch, user_id)
+                    if m.status in ['left', 'kicked']:
+                        not_sub.append(req_ch)
+                except Exception:
+                    not_sub.append(req_ch)
+            if not_sub:
+                bot.send_message(message.chat.id, "❌ Для участия в розыгрыше необходимо подписаться на канал(ы) ниже:", reply_markup=get_unsubscribed_markup(not_sub, msg_id))
+                return
+            if gw.get('use_captcha', False):
+                send_captcha_challenge(message.chat.id, user_id, msg_id)
+            else:
+                register_participant(message.chat.id, user_id, msg_id)
+        else:
+            bot.send_message(message.chat.id, "❌ Этот розыгрыш уже завершен или не найден.")
+        return
+
+    user_states.pop(user_id, None)
+    bot.send_message(message.chat.id, get_welcome_text(), parse_mode='HTML', reply_markup=get_bottom_keyboard())
+    bot.send_message(message.chat.id, '📡 Выберите канал для розыгрыша:', reply_markup=get_main_menu_inline(user_id))
 @bot.message_handler(commands=['create'])
 def cmd_create(message):
     user_id = message.from_user.id
+    user_states[user_id] = {'step': 'waiting_for_captcha_choice'}
+    mk = types.InlineKeyboardMarkup()
+    mk.add(types.InlineKeyboardButton('⛔Нет', callback_data='cap_choice_no'), types.InlineKeyboardButton('➕Да', callback_data='cap_choice_yes'))
+    mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+    bot.send_message(message.chat.id, '🤖Розыгрыш с капчой?', reply_markup=mk)
+
+@bot.message_handler(commands=['mychannels'])
+def cmd_mychannels(message):
+    user_id = message.from_user.id
     user_states.pop(user_id, None)
-    show_channels(message.chat.id, user_id)
+    txt = '📡 <b>Ваши привязанные каналы:</b>\n\nНажмите на канал, чтобы запустить в нём розыгрыш, или добавьте новый:'
+    bot.send_message(message.chat.id, txt, parse_mode='HTML', reply_markup=get_my_channels_markup(user_id))
+
 @bot.message_handler(content_types=['text', 'forwarded'])
 def text_handler(message):
     user_id = message.from_user.id
-    state = user_states.get(user_id)
+    if message.text:
+        cmd_txt = message.text.strip().lower()
+        if cmd_txt in ['⚡️ создать розыгрыш', 'создать розыгрыш', '/create']:
+            cmd_create(message)
+            return
+        if cmd_txt in ['📡 мои каналы', 'мои каналы', '/mychannels']:
+            cmd_mychannels(message)
+            return
 
+    state = user_states.get(user_id)
     if isinstance(state, dict):
-        if state.get('step') == 'waiting_for_add_channel':
+        step = state.get('step')
+        if step == 'waiting_for_add_channel':
+            ch_id, ch_title = None, None
             if message.forward_from_chat:
-                channel_id = message.forward_from_chat.id
-                channel_title = message.forward_from_chat.title
+                ch_id, ch_title = message.forward_from_chat.id, message.forward_from_chat.title
             else:
+                t_in = message.text.strip()
+                if not t_in.startswith('@'): t_in = '@' + t_in
                 try:
-                    channel_id = int(message.text)
-                    channel_title = f"Канал {channel_id}"
-                except ValueError:
-                    bot.send_message(message.chat.id, '❌ Это не похоже на ID. Перешли сообщение из канала или напиши число.', reply_markup=get_back_button())
+                    chat = bot.get_chat(t_in)
+                    ch_id, ch_title = chat.id, chat.title
+                except Exception as e:
+                    bot.send_message(message.chat.id, f'❌ Не удалось найти канал.\nОшибка: {e}')
                     return
-            
             try:
-                test_msg = bot.send_message(channel_id, '✅ Бот успешно добавлен!')
-                bot.delete_message(channel_id, test_msg.message_id)
-                
-                if user_id not in user_channels:
-                    user_channels[user_id] = {}
-                user_channels[user_id][channel_id] = channel_title
-                
-                bot.send_message(message.chat.id, f'✅ Канал "{channel_title}" успешно привязан!', reply_markup=get_main_menu_inline())
+                if bot.get_chat_member(ch_id, bot.get_me().id).status not in ['administrator', 'creator']:
+                    bot.send_message(message.chat.id, '❌ Бот не является администратором в этом канале!')
+                    return
+                if bot.get_chat_member(ch_id, user_id).status not in ['administrator', 'creator']:
+                    bot.send_message(message.chat.id, '❌ Вы не администратор этого канала!')
+                    return
+                tm = bot.send_message(ch_id, '✅ Бот успешно добавлен!')
+                bot.delete_message(ch_id, tm.message_id)
+                user_channels.setdefault(user_id, {})[ch_id] = ch_title
+                save_data()
+                bot.send_message(message.chat.id, f'✅ Канал "{ch_title}" успешно привязан!', reply_markup=get_main_menu_inline(user_id))
             except Exception as e:
-                bot.send_message(message.chat.id, f'❌ Ошибка привязки ({e}). Убедись, что я админ в канале.', reply_markup=get_back_button())
-            
+                bot.send_message(message.chat.id, f'❌ Ошибка привязки ({e}).', reply_markup=get_back_button())
             del user_states[user_id]
             return
 
-        elif state.get('step') == 'waiting_for_giveaway_text':
+        elif step == 'waiting_for_giveaway_text':
             state['text'] = message.text
-            state['step'] = 'waiting_for_required_channels'
+            state['step'] = 'waiting_for_btn_text'
             state['required_channels'] = {state['channel_id']}
-            
-            text = (
-                f"➕Добавьте каналы, на которые пользователям нужно будет подписаться для участия в розыгрыше.\n\n"
-                f"❗️Подписка на канал, в котором проводится розыгрыш, обязательна и включена по умолчанию.\n\n"
-                f"Чтобы добавить канал, нужно:\n"
-                f"1. Добавить бота @{BOT_USERNAME} в этот канал как администратора - это нужно, чтобы бот мог проверить подписан ли пользователь на канал.\n"
-                f"2. Отправить боту канал в формате @юзернеймканала или переслать сообщение из этого канала.\n\n"
-                f"💬 Если Вы хотите чтобы участвовать в розыгрыше можно было без подписок на другие каналы, нажмите кнопку ниже:"
-            )
-            
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton('📢 Без обязательных подписок', callback_data='no_required_subs'))
-            markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-            
-            bot.send_message(message.chat.id, text, reply_markup=markup)
+            mk = types.InlineKeyboardMarkup()
+            mk.add(types.InlineKeyboardButton('🎁Участвую!', callback_data='btn_tpl_1'))
+            mk.add(types.InlineKeyboardButton('💎Принять участие', callback_data='btn_tpl_2'))
+            mk.add(types.InlineKeyboardButton('Я в деле💪', callback_data='btn_tpl_3'))
+            mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+            bot.send_message(message.chat.id, 'Хорошо, отправьте текст который будет отображаться на кнопке', reply_markup=mk)
             return
 
-        elif state.get('step') == 'waiting_for_required_channels':
-            channel_id = None
-            if message.forward_from_chat:
-                channel_id = message.forward_from_chat.id
-            elif message.text and message.text.startswith('@'):
+        elif step == 'waiting_for_btn_text':
+            state['btn_text'] = message.text.strip()
+            state['step'] = 'waiting_for_btn_color'
+            mk = types.InlineKeyboardMarkup()
+            mk.add(types.InlineKeyboardButton('Синяя', callback_data='btn_col_blue'), types.InlineKeyboardButton('Красная', callback_data='btn_col_red'))
+            mk.add(types.InlineKeyboardButton('Зелёная', callback_data='btn_col_green'), types.InlineKeyboardButton('Обычная', callback_data='btn_col_default'))
+            mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+            bot.send_message(message.chat.id, 'Какого цвета будет кнопка?', reply_markup=mk)
+            return
+
+        elif step == 'waiting_for_required_channels':
+            ch_id = message.forward_from_chat.id if message.forward_from_chat else None
+            if not ch_id:
+                t_in = message.text.strip()
+                if not t_in.startswith('@'): t_in = '@' + t_in
                 try:
-                    chat = bot.get_chat(message.text)
-                    channel_id = chat.id
+                    ch_id = bot.get_chat(t_in).id
                 except Exception:
-                    bot.send_message(message.chat.id, '❌ Не удалось найти канал по этому юзернейму. Проверьте правильность.')
+                    bot.send_message(message.chat.id, '❌ Не удалось найти канал.')
                     return
-            
-            if channel_id:
-                try:
-                    bot_member = bot.get_chat_member(channel_id, bot.get_me().id)
-                    if bot_member.status not in ['administrator', 'creator']:
-                        bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
-                        return
-                except Exception:
+            try:
+                if bot.get_chat_member(ch_id, bot.get_me().id).status not in ['administrator', 'creator']:
                     bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
                     return
-
-                state['required_channels'].add(channel_id)
-                
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton('Продолжить настройку ➡️', callback_data='no_required_subs'))
-                markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-                
-                msg_text = '✅ Канал добавлен!\n\nЕщё каналы? ➕ Отправьте @юзернейм или перешлите пост, либо нажмите кнопку ниже 👇'
-                bot.send_message(message.chat.id, msg_text, reply_markup=markup)
-            else:
-                bot.send_message(message.chat.id, '❌ Отправьте юзернейм канала (@channel) или перешлите сообщение.')
+                if bot.get_chat_member(ch_id, user_id).status not in ['administrator', 'creator']:
+                    bot.send_message(message.chat.id, '❌ Вы не админ этого канала!')
+                    return
+                state['required_channels'].add(ch_id)
+                mk = types.InlineKeyboardMarkup()
+                mk.add(types.InlineKeyboardButton('Продолжить настройку ➡️', callback_data='no_required_subs'))
+                mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+                bot.send_message(message.chat.id, '✅ Канал добавлен! Ещё каналы или продолжить?', reply_markup=mk)
+            except Exception:
+                bot.send_message(message.chat.id, '❌ Ошибка проверки прав.')
             return
 
-        elif state.get('step') == 'waiting_for_target_count':
+        elif step == 'waiting_for_target_count':
             try:
                 state['target_count'] = int(message.text)
                 state['step'] = 'waiting_for_winners_count'
                 bot.send_message(message.chat.id, '🏆 Сколько победителей будет? (напиши число)', reply_markup=get_back_button())
             except ValueError:
-                bot.send_message(message.chat.id, '❌ Пожалуйста, введи число (например, 10).', reply_markup=get_back_button())
+                bot.send_message(message.chat.id, '❌ Введи число (например, 10).', reply_markup=get_back_button())
             return
 
-        elif state.get('step') == 'waiting_for_winners_count':
+        elif step == 'waiting_for_winners_count':
             try:
                 state['winners_count'] = int(message.text)
-                extra_channels_count = max(0, len(state.get('required_channels', [])) - 1)
-                safe_text = html.escape(state['text'])
-                
-                preview_text = (
-                    f"📢 <b>Предпросмотр конкурса</b>\n\n"
-                    f"<b>Текст:</b> {safe_text}\n"
-                    f"<b>Цель:</b> {state['target_count']} участников\n"
-                    f"<b>Победителей:</b> {state['winners_count']}\n"
-                    f"<b>Доп. обязательных каналов:</b> {extra_channels_count}\n\n"
-                    f"Вы уверены, что хотите опубликовать конкурс?"
-                )
-                
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton('🚀 Да, опубликовать', callback_data='confirm_publish'))
-                markup.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
-                
-                bot.send_message(message.chat.id, preview_text, reply_markup=markup, parse_mode='HTML')
+                extra = max(0, len(state.get('required_channels', [])) - 1)
+                cap_str = 'Да' if state.get('use_captcha') else 'Нет'
+                prev = f"📢 <b>Предпросмотр конкурса</b>\n\n<b>Текст:</b> {html.escape(state['text'])}\n<b>Кнопка:</b> {html.escape(state.get('btn_text', '🎮 Участвовать'))}\n<b>Капча:</b> {cap_str}\n<b>Цель:</b> {state['target_count']} участников\n<b>Победителей:</b> {state['winners_count']}\n<b>Доп. каналов:</b> {extra}\n\nОпубликовать конкурс?"
+                mk = types.InlineKeyboardMarkup()
+                mk.add(types.InlineKeyboardButton('🚀 Да, опубликовать', callback_data='confirm_publish'))
+                mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+                bot.send_message(message.chat.id, prev, reply_markup=mk, parse_mode='HTML')
                 state['step'] = 'waiting_for_confirm'
             except ValueError:
-                bot.send_message(message.chat.id, '❌ Пожалуйста, введи число (например, 1).', reply_markup=get_back_button())
+                bot.send_message(message.chat.id, '❌ Введи число (например, 1).', reply_markup=get_back_button())
             return
 
     bot.send_message(message.chat.id, '🤖 Я не понимаю. Напиши /start, чтобы открыть меню.', reply_markup=get_back_button())
-@bot.callback_query_handler(func=lambda call: True)
+    @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
     state = user_states.get(user_id)
-    
-    if call.data == 'back_to_menu' or call.data == 'main_menu':
+
+    if call.data in ['back_to_menu', 'main_menu']:
         user_states.pop(user_id, None)
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except Exception:
             pass
-        bot.send_message(call.message.chat.id, '⚙️ Главное меню:\nВыбери действие:', reply_markup=get_main_menu_inline())
+        bot.send_message(call.message.chat.id, get_welcome_text(), parse_mode='HTML', reply_markup=get_main_menu_inline(user_id))
         bot.answer_callback_query(call.id)
         return
 
-    elif call.data == 'my_profile':
-        safe_name = html.escape(call.from_user.first_name or "Пользователь")
-        bot.edit_message_text(
-            chat_id=call.message.chat.id, message_id=call.message.message_id,
-            text=f'👾 <b>Твой профиль</b>\n\nИмя: {safe_name}\nID: {call.from_user.id}',
-            reply_markup=get_back_button(), parse_mode='HTML'
-        )
+    elif call.data in ['cap_choice_yes', 'cap_choice_no']:
+        use_cap = (call.data == 'cap_choice_yes')
+        user_states[user_id] = {'step': 'waiting_for_select_ch', 'use_captcha': use_cap}
+        show_channels(call.message.chat.id, user_id, call.message.message_id)
         bot.answer_callback_query(call.id)
+        return
+
+    elif call.data.startswith('cap_'):
+        parts = call.data.split('_')
+        if len(parts) == 3:
+            msg_id, chosen = int(parts[-2]), int(parts[-1])
+            cap = pending_captchas.get(user_id)
+            if not cap or cap['msg_id'] != msg_id:
+                bot.answer_callback_query(call.id, "Капча устарела. Нажмите «Участвовать» в канале заново.", show_alert=True)
+                return
+            if chosen == cap['ans']:
+                pending_captchas.pop(user_id, None)
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except Exception:
+                    pass
+                register_participant(call.message.chat.id, user_id, msg_id)
+                bot.answer_callback_query(call.id, "Верно! ✅")
+            else:
+                bot.answer_callback_query(call.id, "❌ Неверно! Попробуйте новый пример.", show_alert=True)
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except Exception:
+                    pass
+                send_captcha_challenge(call.message.chat.id, user_id, msg_id)
+        return
 
     elif call.data == 'add_channel':
         user_states[user_id] = {'step': 'waiting_for_add_channel'}
-        bot.edit_message_text(
-            chat_id=call.message.chat.id, message_id=call.message.message_id,
-            text='🔗 Отправь ID твоего канала (например, -1001234567890) или перешли сюда сообщение из канала.\n\n⚠️ Важно: я должен быть админом в канале!',
-            reply_markup=get_back_button()
-        )
-        bot.answer_callback_query(call.id)
-
-    elif call.data == 'create_giveaway':
-        user_states.pop(user_id, None)
-        show_channels(call.message.chat.id, user_id, call.message.message_id)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🔗 Отправь @юзернейм канала или перешли сюда пост из канала.\n\n⚠️ Я и ты должны быть админами в канале!', reply_markup=get_back_button())
         bot.answer_callback_query(call.id)
 
     elif call.data.startswith('select_ch_'):
-        channel_id = int(call.data.replace('select_ch_', ''))
-        user_states[user_id] = {'step': 'waiting_for_giveaway_text', 'channel_id': channel_id, 'required_channels': {channel_id}}
-        bot.edit_message_text(
-            chat_id=call.message.chat.id, message_id=call.message.message_id,
-            text=(
-                f"⚡️ Создание розыгрыша:\n\n"
-                f"✉️ Отправьте текст для розыгрыша.\n\n"
-                f"Бот полностью бесплатный. Будет приятно, если в посте укажете ссылку: @{BOT_USERNAME}"
-            ),
-            reply_markup=get_back_button()
-        )
+        ch_id = int(call.data.replace('select_ch_', ''))
+        use_cap = state.get('use_captcha', False) if isinstance(state, dict) else False
+        user_states[user_id] = {'step': 'waiting_for_giveaway_text', 'channel_id': ch_id, 'required_channels': {ch_id}, 'use_captcha': use_cap}
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"⚡️ Создание розыгрыша:\n\n✉️ Отправьте текст для розыгрыша.\n\nБудет приятно, если укажете ссылку: @{BOT_USERNAME}", reply_markup=get_back_button())
+        bot.answer_callback_query(call.id)
+
+    elif call.data.startswith('btn_tpl_'):
+        if state and state.get('step') == 'waiting_for_btn_text':
+            tpl_map = {'btn_tpl_1': '🎁Участвую!', 'btn_tpl_2': '💎Принять участие', 'btn_tpl_3': 'Я в деле💪'}
+            state['btn_text'] = tpl_map.get(call.data, '🎁Участвую!')
+            state['step'] = 'waiting_for_btn_color'
+            mk = types.InlineKeyboardMarkup()
+            mk.add(types.InlineKeyboardButton('Синяя', callback_data='btn_col_blue'), types.InlineKeyboardButton('Красная', callback_data='btn_col_red'))
+            mk.add(types.InlineKeyboardButton('Зелёная', callback_data='btn_col_green'), types.InlineKeyboardButton('Обычная', callback_data='btn_col_default'))
+            mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Какого цвета будет кнопка?', reply_markup=mk)
+        bot.answer_callback_query(call.id)
+
+    elif call.data.startswith('btn_col_'):
+        if state and state.get('step') == 'waiting_for_btn_color':
+            state['btn_color'] = call.data.replace('btn_col_', '')
+            state['step'] = 'waiting_for_required_channels'
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
+            ask_required_channels_step(call.message.chat.id)
         bot.answer_callback_query(call.id)
 
     elif call.data == 'no_required_subs':
         if state and state.get('step') == 'waiting_for_required_channels':
             state['step'] = 'waiting_for_target_count'
-            bot.edit_message_text(
-                chat_id=call.message.chat.id, message_id=call.message.message_id,
-                text='🎯 На сколько участников конкурс завершится? (напиши число)',
-                reply_markup=get_back_button()
-            )
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🎯 На сколько участников конкурс завершится? (напиши число)', reply_markup=get_back_button())
         bot.answer_callback_query(call.id)
-
-    elif call.data == 'confirm_publish':
+            elif call.data == 'confirm_publish':
         if state and state.get('step') == 'waiting_for_confirm':
-            channel_id = state['channel_id']
-            channel_title = user_channels[user_id].get(channel_id, "Канал")
-            raw_text = state['text']
-            safe_text = html.escape(raw_text)
+            ch_id = state['channel_id']
+            ch_title = user_channels.get(user_id, {}).get(ch_id, "Канал")
+            raw_t = state['text']
             target = state['target_count']
-            winners_count = state['winners_count']
-            required_channels = list(state.get('required_channels', []))
+            w_cnt = state['winners_count']
+            req_chs = list(state.get('required_channels', []))
+            b_text = state.get('btn_text', '🎮 Участвовать')
+            b_color = state.get('btn_color', 'default')
+            use_cap = state.get('use_captcha', False)
             
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton('🎮 Участвовать (0)', callback_data='join_giveaway'))
-            
-            post_body = (
-                f"{safe_text}\n\n"
-                f"🎯 <b>Цель:</b> {target} участников\n"
-                f"🏆 <b>Победителей:</b> {winners_count}\n"
-                f"👥 <b>Сейчас:</b> 0\n\n"
-                f"Нажми кнопку ниже, чтобы участвовать!"
-            )
+            p_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_pending"
+            mk = types.InlineKeyboardMarkup()
+            mk.add(make_join_button(b_text, b_color, 0, p_url))
+            body = f"{html.escape(raw_t)}\n\n🎯 <b>Цель:</b> {target} участников\n🏆 <b>Победителей:</b> {w_cnt}\n👥 <b>Сейчас:</b> 0\n\nНажми кнопку ниже, чтобы участвовать!"
             
             try:
-                sent_msg = bot.send_message(channel_id, post_body, reply_markup=markup, parse_mode='HTML')
+                sent = bot.send_message(ch_id, body, reply_markup=mk, parse_mode='HTML')
+                try:
+                    r_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{sent.message_id}"
+                    n_mk = types.InlineKeyboardMarkup()
+                    n_mk.add(make_join_button(b_text, b_color, 0, r_url))
+                    bot.edit_message_reply_markup(ch_id, sent.message_id, reply_markup=n_mk)
+                except Exception as e_err:
+                    print(f"Предупреждение кнопки: {e_err}")
                 
-                active_giveaways[sent_msg.message_id] = {
-                    'participants': set(),
-                    'target_count': target,
-                    'winners_count': winners_count,
-                    'chat_id': channel_id,
-                    'creator_id': user_id,
-                    'text': raw_text,
-                    'required_channels': required_channels
-                }
+                active_giveaways[sent.message_id] = {'participants': set(), 'target_count': target, 'winners_count': w_cnt, 'chat_id': ch_id, 'creator_id': user_id, 'text': raw_t, 'required_channels': req_chs, 'start_time': get_now_str(), 'btn_text': b_text, 'btn_color': b_color, 'use_captcha': use_cap}
+                save_data()
                 
-                finish_markup = types.InlineKeyboardMarkup()
-                finish_markup.add(types.InlineKeyboardButton('🛑 Завершить досрочно', callback_data=f'finish_{sent_msg.message_id}'))
-                bot.send_message(user_id, f'✅ Розыгрыш в канале "{channel_title}" опубликован!', reply_markup=finish_markup)
-                
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id, message_id=call.message.message_id,
-                    text='✅ Розыгрыш опубликован!',
-                    reply_markup=get_main_menu_inline()
-                )
+                f_mk = types.InlineKeyboardMarkup()
+                f_mk.add(types.InlineKeyboardButton('🛑 Завершить досрочно', callback_data=f'finish_{sent.message_id}'))
+                bot.send_message(user_id, f'✅ Розыгрыш в канале "{ch_title}" опубликован!', reply_markup=f_mk)
+                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='✅ Розыгрыш опубликован!', reply_markup=get_main_menu_inline(user_id))
             except Exception as e:
-                print(f"Ошибка при отправке: {e}")
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id, message_id=call.message.message_id,
-                    text=f'❌ Ошибка при отправке:\n{e}',
-                    reply_markup=get_back_button()
-                )
-            
-            del user_states[user_id]
+                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f'❌ Ошибка:\n{e}\n\n🔗 Ссылка: [{p_url}]', reply_markup=get_back_button())
+            user_states.pop(user_id, None)
         bot.answer_callback_query(call.id)
-    elif call.data == 'join_giveaway':
-        msg_id = call.message.message_id
-        if msg_id not in active_giveaways:
-            bot.answer_callback_query(call.id, "❌ Этот розыгрыш уже завершен или не найден.", show_alert=True)
-            return
-
-        giveaway = active_giveaways[msg_id]
-        if user_id in giveaway['participants']:
-            bot.answer_callback_query(call.id, "Ты уже участвуешь в этом розыгрыше! 🍀", show_alert=True)
-            return
-
-        for req_channel in giveaway.get('required_channels', []):
-            try:
-                member = bot.get_chat_member(req_channel, user_id)
-                if member.status in ['left', 'kicked']:
-                    bot.answer_callback_query(call.id, "❌ Ты не подписан на все обязательные каналы! Сначала подпишись.", show_alert=True)
-                    return
-            except Exception:
-                bot.answer_callback_query(call.id, "❌ Ошибка проверки подписки. Убедитесь, что подписаны на все каналы.", show_alert=True)
-                return
-
-        giveaway['participants'].add(user_id)
-        bot.answer_callback_query(call.id, "✅ Вы участвуете в конкурсе! Удачи! 🍀", show_alert=True)
-        
-        count = len(giveaway['participants'])
-        target = giveaway['target_count']
-        safe_text = html.escape(giveaway['text'])
-        
-        if count >= target:
-            winners = random.sample(list(giveaway['participants']), min(giveaway['winners_count'], count))
-            winners_text = ", ".join([f'<a href="tg://user?id={w}">Пользователь</a>' for w in winners])
-            
-            final_post = (
-                f"{safe_text}\n\n"
-                f"🏆 <b>РОЗЫГРЫШ ЗАВЕРШЕН!</b>\n\n"
-                f"<b>Победители:</b>\n{winners_text}\n\n"
-                f"Поздравляем!"
-            )
-            try:
-                bot.edit_message_text(
-                    chat_id=giveaway['chat_id'], message_id=msg_id,
-                    text=final_post, parse_mode='HTML', reply_markup=types.InlineKeyboardMarkup()
-                )
-            except Exception:
-                pass
-            
-            del active_giveaways[msg_id]
-            try:
-                bot.send_message(giveaway['creator_id'], f'Твой розыгрыш завершился! Набралось {target} участников.')
-            except Exception:
-                pass
-        else:
-            updated_post = (
-                f"{safe_text}\n\n"
-                f"🎯 <b>Цель:</b> {target} участников\n"
-                f"🏆 <b>Победителей:</b> {giveaway['winners_count']}\n"
-                f"👥 <b>Сейчас:</b> {count}\n\n"
-                f"Нажми кнопку ниже, чтобы участвовать!"
-            )
-            try:
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton(f'🎮 Участвовать ({count})', callback_data='join_giveaway'))
-                bot.edit_message_text(
-                    chat_id=giveaway['chat_id'], message_id=msg_id,
-                    text=updated_post, parse_mode='HTML', reply_markup=markup
-                )
-            except Exception:
-                pass
 
     elif call.data.startswith('finish_'):
         msg_id = int(call.data.replace('finish_', ''))
         if msg_id in active_giveaways:
-            giveaway = active_giveaways[msg_id]
-            if user_id != giveaway['creator_id']:
+            gw = active_giveaways[msg_id]
+            if user_id != gw['creator_id']:
                 bot.answer_callback_query(call.id, "Только создатель может завершить!", show_alert=True)
                 return
-            participants = list(giveaway['participants'])
-            if not participants:
+            parts = list(gw['participants'])
+            if not parts:
                 bot.answer_callback_query(call.id, "Никто не участвовал!", show_alert=True)
                 return
-                
-            winners = random.sample(participants, min(giveaway['winners_count'], len(participants)))
-            winners_text = ", ".join([f'<a href="tg://user?id={w}">Пользователь</a>' for w in winners])
-            safe_text = html.escape(giveaway['text'])
-            
-            final_post = (
-                f"{safe_text}\n\n"
-                f"🏆 <b>РОЗЫГРЫШ ЗАВЕРШЕН ДОСРОЧНО!</b>\n\n"
-                f"<b>Победители:</b>\n{winners_text}\n\n"
-                f"Поздравляем!"
-            )
-            
+            winners = random.sample(parts, min(gw['winners_count'], len(parts)))
+            finished_giveaways[msg_id] = {'text': gw['text'], 'winners': winners, 'total_participants': len(parts), 'start_time': gw.get('start_time', 'Неизвестно'), 'end_time': get_now_str()}
+            final_p = html.escape(gw['text'])
+            res_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=results_{msg_id}"
+            fm = types.InlineKeyboardMarkup()
+            fm.add(types.InlineKeyboardButton('📊 Проверить результаты', url=res_url))
             try:
-                bot.edit_message_text(
-                    chat_id=giveaway['chat_id'], message_id=msg_id,
-                    text=final_post, parse_mode='HTML', reply_markup=types.InlineKeyboardMarkup()
-                )
+                bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=final_p, parse_mode='HTML', reply_markup=fm)
                 bot.answer_callback_query(call.id, "Розыгрыш завершен!")
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                bot.send_message(call.message.chat.id, '⚙️ Возвращаемся в меню:', reply_markup=get_main_menu_inline())
+                publish_results(gw, winners, is_auto=False)
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except Exception:
+                    pass
+                bot.send_message(call.message.chat.id, '⚙️ Возвращаемся в меню:', reply_markup=get_main_menu_inline(user_id))
                 del active_giveaways[msg_id]
-            except Exception as e:
-                bot.answer_callback_query(call.id, f"Ошибка: {e}", show_alert=True)
+                save_data()
+            except Exception:
+                bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
 
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
@@ -420,11 +563,9 @@ def run_dummy_server():
         def do_HEAD(self):
             self.send_response(200)
             self.end_headers()
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), DummyHandler)
+    server = HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), DummyHandler)
     server.serve_forever()
 
 threading.Thread(target=run_dummy_server, daemon=True).start()
-
-print("Бот запущен!")
+print(f"Бот запущен! Юзернейм: {BOT_USERNAME}")
 bot.infinity_polling()

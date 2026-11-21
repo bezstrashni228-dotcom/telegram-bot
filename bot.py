@@ -480,12 +480,12 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
 
     elif call.data == 'no_required_subs':
-            if state and state.get('step') == 'waiting_for_required_channels':
+        if state and state.get('step') == 'waiting_for_required_channels':
             state['step'] = 'waiting_for_target_count'
             bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🎯 На сколько участников конкурс завершится? (напиши число)', reply_markup=get_back_button())
         bot.answer_callback_query(call.id)
     elif call.data == 'confirm_publish':
-            if state and state.get('step') == 'waiting_for_confirm':
+        if state and state.get('step') == 'waiting_for_confirm':
             ch_id = state['channel_id']
             ch_title = user_channels.get(user_id, {}).get(ch_id, "Канал")
             raw_t = state['text']

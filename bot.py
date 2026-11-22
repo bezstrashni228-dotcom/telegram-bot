@@ -338,7 +338,7 @@ def cmd_stats(message):
         f"🎟 Участников в активных розыгрышах: <b>{total_active_part}</b>",
         parse_mode='HTML'
     )
-    @bot.message_handler(content_types=['text', 'photo', 'video', 'forwarded'])
+@bot.message_handler(content_types=['text', 'photo', 'video', 'forwarded'])
 def text_handler(message):
     user_id = message.from_user.id
     if message.text:

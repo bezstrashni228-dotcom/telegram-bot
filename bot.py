@@ -278,7 +278,7 @@ def start(message):
     user_states.pop(user_id, None)
     bot.send_message(message.chat.id, get_welcome_text(), parse_mode='HTML', reply_markup=get_bottom_keyboard())
     bot.send_message(message.chat.id, '📡 Выберите канал для розыгрыша:', reply_markup=get_main_menu_inline(user_id))
-    def _not_subscribed(ch_id, user_id):
+def _not_subscribed(ch_id, user_id):
     try:
         return bot.get_chat_member(ch_id, user_id).status in ['left', 'kicked']
     except Exception:

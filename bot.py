@@ -61,8 +61,7 @@ def load_data():
                     user_balances[int(uid)] = int(bal)
         except Exception as e:
             print(f"Ошибка загрузки: {e}")
-
-def save_data():
+            def save_data():
     try:
         gw_save = {}
         for mid, gw in active_giveaways.items():
@@ -110,8 +109,7 @@ def get_my_channels_markup(user_id):
 
 def get_welcome_text():
     return "👋 Привет, вот доступные тебе команды\n<blockquote>🎁 /create — создание розыгрыша\n📡 /mychannels — мои каналы\n💥 /ref — реферальная система</blockquote>\n❗️ <i>Важно: если ты впервые в нашем боте, не забудь сначала добавить канал.</i>"
-
-def ask_required_channels_step(chat_id):
+    def ask_required_channels_step(chat_id):
     txt = f"➕Добавьте каналы для обязательной подписки (основной канал уже включен).\n\n1. Добавьте @{BOT_USERNAME} в админы канала.\n2. Отправьте @юзернейм или перешлите пост.\n\n💬 Или нажмите кнопку ниже:"
     mk = types.InlineKeyboardMarkup()
     mk.add(types.InlineKeyboardButton('📢 Без обязательных подписок', callback_data='no_required_subs'))
@@ -177,8 +175,7 @@ def get_unsubscribed_markup(channels, msg_id):
             pass
     mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"))
     return mk
-
-def register_participant(chat_id, user_id, msg_id):
+    def register_participant(chat_id, user_id, msg_id):
     if msg_id not in active_giveaways:
         bot.send_message(chat_id, "❌ Этот розыгрыш уже завершен или не найден.")
         return
@@ -191,7 +188,6 @@ def register_participant(chat_id, user_id, msg_id):
     bot.send_message(chat_id, "✅ Вы участвуете в розыгрыше! Удачи! 🍀")
     cnt = len(gw['participants'])
     target = gw['target_count']
-    safe_t = html.escape(gw['text'])
     if cnt >= target:
         winners = random.sample(list(gw['participants']), min(gw['winners_count'], cnt))
         finished_giveaways[msg_id] = {'text': gw['text'], 'winners': winners, 'total_participants': cnt, 'start_time': gw.get('start_time', 'Неизвестно'), 'end_time': get_now_str()}
@@ -199,7 +195,7 @@ def register_participant(chat_id, user_id, msg_id):
         fm = types.InlineKeyboardMarkup()
         fm.add(types.InlineKeyboardButton('📊 Проверить результаты', url=res_url))
         try:
-            bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=safe_t, parse_mode='HTML', reply_markup=fm)
+            bot.edit_message_reply_markup(chat_id=gw['chat_id'], message_id=msg_id, reply_markup=fm)
         except Exception:
             pass
         publish_results(gw, winners, is_auto=True)
@@ -210,12 +206,11 @@ def register_participant(chat_id, user_id, msg_id):
         except Exception:
             pass
     else:
-        upd_p = f"{safe_t}\n\n🎯 <b>Цель:</b> {target} участников\n🏆 <b>Победителей:</b> {gw['winners_count']}\n👥 <b>Сейчас:</b> {cnt}\n\nНажми кнопку ниже, чтобы участвовать!"
         try:
             j_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"
             mk = types.InlineKeyboardMarkup()
             mk.add(make_join_button(gw.get('btn_text', '🎮 Участвовать'), gw.get('btn_color', 'default'), cnt, j_url))
-            bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=upd_p, parse_mode='HTML', reply_markup=mk)
+            bot.edit_message_reply_markup(chat_id=gw['chat_id'], message_id=msg_id, reply_markup=mk)
         except Exception:
             pass
 
@@ -223,20 +218,17 @@ def register_participant(chat_id, user_id, msg_id):
 def start(message):
     user_id = message.from_user.id
     parts = message.text.split()
-    
     if len(parts) > 1 and parts[-1].startswith('ref_'):
         try:
             inviter_id = int(parts[-1].replace('ref_', ''))
-            if inviter_id != user_id:
-                already_invited = any(user_id in r_set for r_set in referrals.values())
-                if not already_invited:
-                    referrals.setdefault(inviter_id, set()).add(user_id)
-                    user_balances[inviter_id] = user_balances.get(inviter_id, 0) + REF_REWARD
-                    save_data()
-                    try:
-                        bot.send_message(inviter_id, f"🎉 <b>По твоей реферальной ссылке перешёл новый друг!</b>\n\n💎 Начислено: <b>+{REF_REWARD} ⭐</b>\n💰 Твой баланс: <b>{user_balances[inviter_id]} ⭐</b>", parse_mode='HTML')
-                    except Exception:
-                        pass
+            if inviter_id != user_id and not any(user_id in r for r in referrals.values()):
+                referrals.setdefault(inviter_id, set()).add(user_id)
+                user_balances[inviter_id] = user_balances.get(inviter_id, 0) + REF_REWARD
+                save_data()
+                try:
+                    bot.send_message(inviter_id, f"🎉 <b>По твоей реферальной ссылке перешёл новый друг!</b>\n\n💎 Начислено: <b>+{REF_REWARD} ⭐</b>\n💰 Твой баланс: <b>{user_balances[inviter_id]} ⭐</b>", parse_mode='HTML')
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -250,7 +242,7 @@ def start(message):
             res = finished_giveaways[msg_id]
             w_list = [f"• <a href='tg://user?id={w}'>Победитель</a> (ID: <code>{w}</code>)" for w in res.get('winners', [])]
             w_block = "\n".join(w_list) if w_list else "Не определены"
-            safe_t = html.escape(res.get('text', ''))
+            safe_t = html.escape(res.get('text') or 'Медиа-розыгрыш')
             info = f"📊 <b>Результаты розыгрыша</b>\n\n📝 <b>Конкурс:</b> {safe_t}\n\n🏆 <b>Победители:</b>\n{w_block}\n\n👥 <b>Всего участников:</b> {res.get('total_participants', 0)}\n🕒 <b>Начало:</b> {res.get('start_time', 'Неизвестно')}\n🏁 <b>Завершение:</b> {res.get('end_time', 'Неизвестно')}"
             bot.send_message(message.chat.id, info, parse_mode='HTML', reply_markup=get_back_button())
         else:
@@ -269,14 +261,7 @@ def start(message):
                 bot.send_message(message.chat.id, "Ты уже участвуешь в этом розыгрыше! 🍀")
                 return
             channels_to_check = list(set(gw.get('required_channels', []) + [gw['chat_id']]))
-            not_sub = []
-            for req_ch in channels_to_check:
-                try:
-                    m = bot.get_chat_member(req_ch, user_id)
-                    if m.status in ['left', 'kicked']:
-                        not_sub.append(req_ch)
-                except Exception:
-                    not_sub.append(req_ch)
+            not_sub = [c for c in channels_to_check if _not_subscribed(c, user_id)]
             if not_sub:
                 bot.send_message(message.chat.id, "❌ Для участия в розыгрыше необходимо подписаться на канал(ы) ниже:", reply_markup=get_unsubscribed_markup(not_sub, msg_id))
                 return
@@ -291,6 +276,11 @@ def start(message):
     user_states.pop(user_id, None)
     bot.send_message(message.chat.id, get_welcome_text(), parse_mode='HTML', reply_markup=get_bottom_keyboard())
     bot.send_message(message.chat.id, '📡 Выберите канал для розыгрыша:', reply_markup=get_main_menu_inline(user_id))
+    def _not_subscribed(ch_id, user_id):
+    try:
+        return bot.get_chat_member(ch_id, user_id).status in ['left', 'kicked']
+    except Exception:
+        return True
 
 @bot.message_handler(commands=['create'])
 def cmd_create(message):
@@ -315,19 +305,13 @@ def cmd_ref(message):
     ref_count = len(referrals.get(user_id, set()))
     bal = user_balances.get(user_id, 0)
     ref_link = f"{BASE_TG_URL}{BOT_USERNAME}?start=ref_{user_id}"
-    txt = (
-        f"💥 <b>Реферальная система</b> 💥\n\n"
-        f"🎁 Приглашай друзей по своей уникальной ссылке и получай <b>+{REF_REWARD} ⭐</b> за каждого нового пользователя!\n\n"
-        f"🔗 <b>Твоя реферальная ссылка:</b>\n<code>{ref_link}</code>\n\n"
-        f"👥 <b>Приглашено друзей:</b> {ref_count}\n"
-        f"💎 <b>Доступно к выводу:</b> {bal} ⭐ <i>(вывод от {MIN_WITHDRAW} ⭐)</i>"
-    )
+    txt = f"💥 <b>Реферальная система</b> 💥\n\n🎁 Приглашай друзей по своей уникальной ссылке и получай <b>+{REF_REWARD} ⭐</b> за каждого нового пользователя!\n\n🔗 <b>Твоя реферальная ссылка:</b>\n<code>{ref_link}</code>\n\n👥 <b>Приглашено друзей:</b> {ref_count}\n💎 <b>Доступно к выводу:</b> {bal} ⭐ <i>(вывод от {MIN_WITHDRAW} ⭐)</i>"
     mk = types.InlineKeyboardMarkup()
     mk.add(types.InlineKeyboardButton('💰 Баланс', callback_data='ref_balance'), types.InlineKeyboardButton('💸 Вывод', callback_data='ref_withdraw'))
     mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
     bot.send_message(message.chat.id, txt, parse_mode='HTML', reply_markup=mk)
 
-@bot.message_handler(content_types=['text', 'forwarded'])
+@bot.message_handler(content_types=['text', 'photo', 'video', 'forwarded'])
 def text_handler(message):
     user_id = message.from_user.id
     if message.text:
@@ -341,15 +325,14 @@ def text_handler(message):
         if cmd_txt in ['💥реферальная система', '💥 реферальная система', 'реферальная система', '/ref']:
             cmd_ref(message)
             return
-
-    state = user_states.get(user_id)
+                state = user_states.get(user_id)
     if isinstance(state, dict):
         step = state.get('step')
         if step == 'waiting_for_add_channel':
             ch_id, ch_title = None, None
             if message.forward_from_chat:
                 ch_id, ch_title = message.forward_from_chat.id, message.forward_from_chat.title
-            else:
+            elif message.text:
                 t_in = message.text.strip()
                 if not t_in.startswith('@'): t_in = '@' + t_in
                 try:
@@ -358,6 +341,9 @@ def text_handler(message):
                 except Exception as e:
                     bot.send_message(message.chat.id, f'❌ Не удалось найти канал.\nОшибка: {e}')
                     return
+            else:
+                bot.send_message(message.chat.id, '❌ Отправь @юзернейм канала или перешли сообщение из канала.')
+                return
             try:
                 if bot.get_chat_member(ch_id, bot.get_me().id).status not in ['administrator', 'creator']:
                     bot.send_message(message.chat.id, '❌ Бот не является администратором в этом канале!')
@@ -376,7 +362,15 @@ def text_handler(message):
             return
 
         elif step == 'waiting_for_giveaway_text':
-            state['text'] = message.text
+            if message.content_type == 'photo':
+                state['media_type'], state['media_id'], state['text'] = 'photo', message.photo[-1].file_id, message.caption or ''
+            elif message.content_type == 'video':
+                state['media_type'], state['media_id'], state['text'] = 'video', message.video.file_id, message.caption or ''
+            elif message.content_type == 'text':
+                state['media_type'], state['media_id'], state['text'] = 'text', None, message.text
+            else:
+                bot.send_message(message.chat.id, '❌ Отправьте текст, фото или видео.')
+                return
             state['step'] = 'waiting_for_btn_text'
             state['required_channels'] = {state['channel_id']}
             mk = types.InlineKeyboardMarkup()
@@ -387,7 +381,7 @@ def text_handler(message):
             bot.send_message(message.chat.id, 'Хорошо, отправьте текст который будет отображаться на кнопке', reply_markup=mk)
             return
 
-        elif step == 'waiting_for_btn_text':
+        elif step == 'waiting_for_btn_text' and message.text:
             state['btn_text'] = message.text.strip()
             state['step'] = 'waiting_for_btn_color'
             mk = types.InlineKeyboardMarkup()
@@ -399,7 +393,7 @@ def text_handler(message):
 
         elif step == 'waiting_for_required_channels':
             ch_id = message.forward_from_chat.id if message.forward_from_chat else None
-            if not ch_id:
+            if not ch_id and message.text:
                 t_in = message.text.strip()
                 if not t_in.startswith('@'): t_in = '@' + t_in
                 try:
@@ -407,6 +401,9 @@ def text_handler(message):
                 except Exception:
                     bot.send_message(message.chat.id, '❌ Не удалось найти канал.')
                     return
+            if not ch_id:
+                bot.send_message(message.chat.id, '❌ Отправьте @юзернейм или перешлите пост из канала.')
+                return
             try:
                 if bot.get_chat_member(ch_id, bot.get_me().id).status not in ['administrator', 'creator']:
                     bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
@@ -423,7 +420,7 @@ def text_handler(message):
                 bot.send_message(message.chat.id, '❌ Ошибка проверки прав.')
             return
 
-        elif step == 'waiting_for_target_count':
+        elif step == 'waiting_for_target_count' and message.text:
             try:
                 state['target_count'] = int(message.text)
                 state['step'] = 'waiting_for_winners_count'
@@ -432,12 +429,15 @@ def text_handler(message):
                 bot.send_message(message.chat.id, '❌ Введи число (например, 10).', reply_markup=get_back_button())
             return
 
-        elif step == 'waiting_for_winners_count':
+        elif step == 'waiting_for_winners_count' and message.text:
             try:
                 state['winners_count'] = int(message.text)
                 extra = max(0, len(state.get('required_channels', [])) - 1)
                 cap_str = 'Да' if state.get('use_captcha') else 'Нет'
-                prev = f"📢 <b>Предпросмотр конкурса</b>\n\n<b>Текст:</b> {html.escape(state['text'])}\n<b>Кнопка:</b> {html.escape(state.get('btn_text', '🎮 Участвовать'))}\n<b>Капча:</b> {cap_str}\n<b>Цель:</b> {state['target_count']} участников\n<b>Победителей:</b> {state['winners_count']}\n<b>Доп. каналов:</b> {extra}\n\nОпубликовать конкурс?"
+                m_map = {'photo': '🖼 Фото', 'video': '🎬 Видео', 'text': '📝 Только текст'}
+                m_str = m_map.get(state.get('media_type', 'text'), '📝 Только текст')
+                prev_txt = html.escape(state['text']) if state['text'] else '<i>(без текста)</i>'
+                prev = f"📢 <b>Предпросмотр конкурса</b>\n\n<b>Формат:</b> {m_str}\n<b>Текст:</b> {prev_txt}\n<b>Кнопка:</b> {html.escape(state.get('btn_text', '🎮 Участвовать'))}\n<b>Капча:</b> {cap_str}\n<b>Цель:</b> {state['target_count']} участников\n<b>Победителей:</b> {state['winners_count']}\n<b>Доп. каналов:</b> {extra}\n\nОпубликовать конкурс?"
                 mk = types.InlineKeyboardMarkup()
                 mk.add(types.InlineKeyboardButton('🚀 Да, опубликовать', callback_data='confirm_publish'))
                 mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
@@ -448,8 +448,7 @@ def text_handler(message):
             return
 
     bot.send_message(message.chat.id, '🤖 Я не понимаю. Напиши /start, чтобы открыть меню.', reply_markup=get_back_button())
-
-@bot.callback_query_handler(func=lambda call: True)
+    @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
     state = user_states.get(user_id)
@@ -468,13 +467,7 @@ def callback_handler(call):
         ref_count = len(referrals.get(user_id, set()))
         bal = user_balances.get(user_id, 0)
         ref_link = f"{BASE_TG_URL}{BOT_USERNAME}?start=ref_{user_id}"
-        txt = (
-            f"💥 <b>Реферальная система</b> 💥\n\n"
-            f"🎁 Приглашай друзей по своей уникальной ссылке и получай <b>+{REF_REWARD} ⭐</b> за каждого нового пользователя!\n\n"
-            f"🔗 <b>Твоя реферальная ссылка:</b>\n<code>{ref_link}</code>\n\n"
-            f"👥 <b>Приглашено друзей:</b> {ref_count}\n"
-            f"💎 <b>Доступно к выводу:</b> {bal} ⭐ <i>(вывод от {MIN_WITHDRAW} ⭐)</i>"
-        )
+        txt = f"💥 <b>Реферальная система</b> 💥\n\n🎁 Приглашай друзей по своей уникальной ссылке и получай <b>+{REF_REWARD} ⭐</b> за каждого нового пользователя!\n\n🔗 <b>Твоя реферальная ссылка:</b>\n<code>{ref_link}</code>\n\n👥 <b>Приглашено друзей:</b> {ref_count}\n💎 <b>Доступно к выводу:</b> {bal} ⭐ <i>(вывод от {MIN_WITHDRAW} ⭐)</i>"
         mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton('💰 Баланс', callback_data='ref_balance'), types.InlineKeyboardButton('💸 Вывод', callback_data='ref_withdraw'))
         mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
@@ -487,13 +480,7 @@ def callback_handler(call):
         ref_count = len(referrals.get(user_id, set()))
         need = max(0, MIN_WITHDRAW - bal)
         status_line = f"🚀 До минимального вывода не хватает: <b>{need} ⭐</b>" if need > 0 else "🎉 <b>Порог достигнут! Можешь оформить вывод прямо сейчас!</b>"
-        txt = (
-            f"💰 <b>Твой реферальный баланс</b> 💰\n\n"
-            f"✨ <b>Текущий баланс:</b> <b>{bal} ⭐</b>\n"
-            f"👥 <b>Всего приглашено:</b> {ref_count} чел.\n"
-            f"🔥 <b>Награда за друга:</b> +{REF_REWARD} ⭐\n\n"
-            f"{status_line}"
-        )
+        txt = f"💰 <b>Твой реферальный баланс</b> 💰\n\n✨ <b>Текущий баланс:</b> <b>{bal} ⭐</b>\n👥 <b>Всего приглашено:</b> {ref_count} чел.\n🔥 <b>Награда за друга:</b> +{REF_REWARD} ⭐\n\n{status_line}"
         mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton('💸 Вывод', callback_data='ref_withdraw'))
         mk.add(types.InlineKeyboardButton('◀️ Назад к рефералке', callback_data='ref_menu_back'))
@@ -510,23 +497,14 @@ def callback_handler(call):
         save_data()
         uname = f"@{call.from_user.username}" if call.from_user.username else "нет юзернейма"
         safe_name = html.escape(call.from_user.first_name or "Пользователь")
-        admin_txt = (
-            f"🚨 <b>НОВАЯ ЗАЯВКА НА ВЫВОД ЗВЁЗД!</b> 🚨\n\n"
-            f"👤 <b>Пользователь:</b> <a href='tg://user?id={user_id}'>{safe_name}</a> ({uname})\n"
-            f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-            f"⭐ <b>Сумма к выводу:</b> <b>{bal} ⭐</b>\n"
-            f"🕒 <b>Время заявки:</b> {get_now_str()}"
-        )
+        admin_txt = f"🚨 <b>НОВАЯ ЗАЯВКА НА ВЫВОД ЗВЁЗД!</b> 🚨\n\n👤 <b>Пользователь:</b> <a href='tg://user?id={user_id}'>{safe_name}</a> ({uname})\n🆔 <b>ID:</b> <code>{user_id}</code>\n⭐ <b>Сумма к выводу:</b> <b>{bal} ⭐</b>\n🕒 <b>Время заявки:</b> {get_now_str()}"
         adm_mk = types.InlineKeyboardMarkup()
         adm_mk.add(types.InlineKeyboardButton('✅ Выплачено', callback_data=f'paid_ref_{user_id}_{bal}'))
         try:
             bot.send_message(ADMIN_ID, admin_txt, parse_mode='HTML', reply_markup=adm_mk)
         except Exception as e:
             print(f"Ошибка отправки заявки админу: {e}")
-        user_txt = (
-            f"✅ <b>Заявка на вывод {bal} ⭐ успешно отправлена!</b>\n\n"
-            f"⏳ Администратор получил уведомление и скоро переведёт звёзды на твой аккаунт."
-        )
+        user_txt = f"✅ <b>Заявка на вывод {bal} ⭐ успешно отправлена!</b>\n\n⏳ Администратор получил уведомление и скоро переведёт звёзды на твой аккаунт."
         mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton('◀️ Назад к рефералке', callback_data='ref_menu_back'))
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=user_txt, parse_mode='HTML', reply_markup=mk)
@@ -579,8 +557,7 @@ def callback_handler(call):
                     pass
                 send_captcha_challenge(call.message.chat.id, user_id, msg_id)
         return
-
-    elif call.data == 'add_channel':
+            elif call.data == 'add_channel':
         user_states[user_id] = {'step': 'waiting_for_add_channel'}
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🔗 Отправь @юзернейм канала или перешли сюда пост из канала.\n\n⚠️ Я и ты должны быть админами в канале!', reply_markup=get_back_button())
         bot.answer_callback_query(call.id)
@@ -589,7 +566,7 @@ def callback_handler(call):
         ch_id = int(call.data.replace('select_ch_', ''))
         use_cap = state.get('use_captcha', False) if isinstance(state, dict) else False
         user_states[user_id] = {'step': 'waiting_for_giveaway_text', 'channel_id': ch_id, 'required_channels': {ch_id}, 'use_captcha': use_cap}
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"⚡️ Создание розыгрыша:\n\n✉️ Отправьте текст для розыгрыша.\n\nБудет приятно, если укажете ссылку: @{BOT_USERNAME}", reply_markup=get_back_button())
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"⚡️ Создание розыгрыша:\n\n✉️ Отправьте текст (или фото/видео с текстом) для розыгрыша.\n\nБудет приятно, если укажете ссылку: @{BOT_USERNAME}", reply_markup=get_back_button())
         bot.answer_callback_query(call.id)
 
     elif call.data.startswith('btn_tpl_'):
@@ -619,13 +596,15 @@ def callback_handler(call):
         if state and state.get('step') == 'waiting_for_required_channels':
             state['step'] = 'waiting_for_target_count'
             bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🎯 На сколько участников конкурс завершится? (напиши число)', reply_markup=get_back_button())
-        
         bot.answer_callback_query(call.id)
+
     elif call.data == 'confirm_publish':
         if state and state.get('step') == 'waiting_for_confirm':
             ch_id = state['channel_id']
             ch_title = user_channels.get(user_id, {}).get(ch_id, "Канал")
-            raw_t = state['text']
+            raw_t = state.get('text', '')
+            m_type = state.get('media_type', 'text')
+            m_id = state.get('media_id')
             target = state['target_count']
             w_cnt = state['winners_count']
             req_chs = list(state.get('required_channels', []))
@@ -636,10 +615,16 @@ def callback_handler(call):
             p_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_pending"
             mk = types.InlineKeyboardMarkup()
             mk.add(make_join_button(b_text, b_color, 0, p_url))
-            body = f"{html.escape(raw_t)}\n\n🎯 <b>Цель:</b> {target} участников\n🏆 <b>Победителей:</b> {w_cnt}\n👥 <b>Сейчас:</b> 0\n\nНажми кнопку ниже, чтобы участвовать!"
+            safe_body = html.escape(raw_t) if raw_t else None
             
             try:
-                sent = bot.send_message(ch_id, body, reply_markup=mk, parse_mode='HTML')
+                if m_type == 'photo' and m_id:
+                    sent = bot.send_photo(ch_id, m_id, caption=safe_body, reply_markup=mk, parse_mode='HTML')
+                elif m_type == 'video' and m_id:
+                    sent = bot.send_video(ch_id, m_id, caption=safe_body, reply_markup=mk, parse_mode='HTML')
+                else:
+                    sent = bot.send_message(ch_id, safe_body or '🎁 Розыгрыш!', reply_markup=mk, parse_mode='HTML')
+
                 try:
                     r_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{sent.message_id}"
                     n_mk = types.InlineKeyboardMarkup()
@@ -648,7 +633,7 @@ def callback_handler(call):
                 except Exception as e_err:
                     print(f"Предупреждение кнопки: {e_err}")
                 
-                active_giveaways[sent.message_id] = {'participants': set(), 'target_count': target, 'winners_count': w_cnt, 'chat_id': ch_id, 'creator_id': user_id, 'text': raw_t, 'required_channels': req_chs, 'start_time': get_now_str(), 'btn_text': b_text, 'btn_color': b_color, 'use_captcha': use_cap}
+                active_giveaways[sent.message_id] = {'participants': set(), 'target_count': target, 'winners_count': w_cnt, 'chat_id': ch_id, 'creator_id': user_id, 'text': raw_t, 'media_type': m_type, 'media_id': m_id, 'required_channels': req_chs, 'start_time': get_now_str(), 'btn_text': b_text, 'btn_color': b_color, 'use_captcha': use_cap}
                 save_data()
                 
                 f_mk = types.InlineKeyboardMarkup()
@@ -673,12 +658,11 @@ def callback_handler(call):
                 return
             winners = random.sample(parts, min(gw['winners_count'], len(parts)))
             finished_giveaways[msg_id] = {'text': gw['text'], 'winners': winners, 'total_participants': len(parts), 'start_time': gw.get('start_time', 'Неизвестно'), 'end_time': get_now_str()}
-            final_p = html.escape(gw['text'])
             res_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=results_{msg_id}"
             fm = types.InlineKeyboardMarkup()
             fm.add(types.InlineKeyboardButton('📊 Проверить результаты', url=res_url))
             try:
-                bot.edit_message_text(chat_id=gw['chat_id'], message_id=msg_id, text=final_p, parse_mode='HTML', reply_markup=fm)
+                bot.edit_message_reply_markup(chat_id=gw['chat_id'], message_id=msg_id, reply_markup=fm)
                 bot.answer_callback_query(call.id, "Розыгрыш завершен!")
                 publish_results(gw, winners, is_auto=False)
                 try:

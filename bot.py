@@ -673,32 +673,31 @@ def callback_handler(call):
                 bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
 WEBAPP_HTML = """<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<script src="https://telegram.org"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#17212b;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;box-sizing:border-box}
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#17212b;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;overflow:hidden;touch-action:none}
 .card{background:#232e3c;padding:28px 20px;border-radius:18px;width:100%;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
 h2{margin:0 0 8px;font-size:20px}p{margin:0 0 24px;color:#8e9ba8;font-size:14px}
-.track{position:relative;height:54px;background:#17212b;border-radius:27px;overflow:hidden;user-select:none;border:1px solid #2f3e4e}
-.fill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#2ea6ff,#007aff);border-radius:27px}
-.txt{position:relative;z-index:1;line-height:54px;font-size:14px;color:#8e9ba8;pointer-events:none}
-.knob{position:absolute;left:4px;top:4px;width:46px;height:46px;background:#fff;border-radius:50%;z-index:2;display:flex;align-items:center;justify-content:center;color:#007aff;font-weight:bold;font-size:20px;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.track{position:relative;height:56px;background:#17212b;border-radius:28px;overflow:hidden;border:1px solid #2f3e4e;touch-action:none}
+.fill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#2ea6ff,#007aff);border-radius:28px;pointer-events:none}
+.txt{position:relative;z-index:1;line-height:56px;font-size:14px;color:#8e9ba8;pointer-events:none}
+.knob{position:absolute;left:4px;top:4px;width:48px;height:48px;background:#fff;border-radius:50%;z-index:2;display:flex;align-items:center;justify-content:center;color:#007aff;font-weight:bold;font-size:22px;cursor:grab;box-shadow:0 2px 8px rgba(0,0,0,.4);touch-action:none}
 </style></head><body><div class="card"><h2>🤖 Проверка на робота</h2><p id="st">Проведите ползунок вправо, чтобы подтвердить участие</p>
 <div class="track" id="tr"><div class="fill" id="fl"></div><div class="txt" id="tx">Проведите вправо ➡️</div><div class="knob" id="kb">❯</div></div></div>
 <script>
 const tg=window.Telegram.WebApp;tg.ready();tg.expand();
 const kb=document.getElementById('kb'),tr=document.getElementById('tr'),fl=document.getElementById('fl'),tx=document.getElementById('tx'),st=document.getElementById('st');
 let drag=false,startX=0,done=false;
-const move=(x)=>{if(!drag||done)return;const max=tr.offsetWidth-54;let dx=Math.max(0,Math.min(x-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+50)+'px';
-if(dx>=max-4){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
-const uid=tg.initDataUnsafe?.user?.id;const sp=tg.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
+kb.onpointerdown=(e)=>{if(done)return;drag=true;startX=e.clientX;kb.setPointerCapture(e.pointerId)};
+kb.onpointermove=(e)=>{if(!drag||done)return;const max=tr.offsetWidth-56;let dx=Math.max(0,Math.min(e.clientX-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+52)+'px';
+if(dx>=max-5){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
+const uid=tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:null;
+const sp=tg.initDataUnsafe&&tg.initDataUnsafe.start_param?tg.initDataUnsafe.start_param:(new URLSearchParams(location.search).get('tgWebAppStartParam')||'');
 fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,start_param:sp})})
-.then(()=>{st.innerText='Готово! Вернитесь в чат с ботом.';setTimeout(()=>tg.close(),600);}).catch(()=>tg.close());}};
-kb.addEventListener('touchstart',e=>{drag=true;startX=e.touches[0].clientX});
-window.addEventListener('touchmove',e=>move(e.touches[0].clientX));
-window.addEventListener('touchend',()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}});
-kb.addEventListener('mousedown',e=>{drag=true;startX=e.clientX});
-window.addEventListener('mousemove',e=>move(e.clientX));
-window.addEventListener('mouseup',()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}});
+.then(()=>{st.innerText='Готово! Возвращаемся в чат...';setTimeout(()=>tg.close(),500)}).catch(()=>tg.close())}};
+kb.onpointerup=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
+kb.onpointercancel=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 </script></body></html>"""
 
 def process_webapp_join(user_id, start_param):

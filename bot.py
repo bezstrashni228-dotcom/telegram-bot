@@ -160,7 +160,7 @@ def send_captcha_challenge(chat_id, user_id, msg_id):
     opts = list(options)
     random.shuffle(opts)
     mk = types.InlineKeyboardMarkup()
-    mk.add(*[types.InlineKeyboardButton(str(o), callback_data=f'cap_{msg_id}_{o}') for o in opts])
+        mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"))
     bot.send_message(chat_id, f"🤖 <b>Проверка на бота!</b>\n\nРешите пример, чтобы участвовать:\n<b>{a} + {b} = ?</b>", parse_mode='HTML', reply_markup=mk)
 
 def get_unsubscribed_markup(channels, msg_id):
@@ -209,7 +209,7 @@ def register_participant(chat_id, user_id, msg_id):
             pass
     else:
         try:
-            j_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"
+            j_url = f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"
             mk = types.InlineKeyboardMarkup()
             mk.add(make_join_button(gw.get('btn_text', '🎮 Участвовать'), gw.get('btn_color', 'default'), cnt, j_url))
             bot.edit_message_reply_markup(chat_id=gw['chat_id'], message_id=msg_id, reply_markup=mk)
@@ -623,7 +623,7 @@ def callback_handler(call):
                     sent = bot.send_message(ch_id, safe_body or '🎁 Розыгрыш!', reply_markup=mk, parse_mode='HTML')
 
                 try:
-                    r_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{sent.message_id}"
+                    r_url = f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{sent.message_id}"
                     n_mk = types.InlineKeyboardMarkup()
                     n_mk.add(make_join_button(b_text, b_color, 0, r_url))
                     bot.edit_message_reply_markup(ch_id, sent.message_id, reply_markup=n_mk)
@@ -671,19 +671,90 @@ def callback_handler(call):
                 save_data()
             except Exception:
                 bot.answer_callback_query(call.id, "Ошибка. Возможно, сообщение удалено.")
+WEBAPP_HTML = """<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<script src="https://telegram.org"></script>
+<style>
+body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#17212b;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;box-sizing:border-box}
+.card{background:#232e3c;padding:28px 20px;border-radius:18px;width:100%;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+h2{margin:0 0 8px;font-size:20px}p{margin:0 0 24px;color:#8e9ba8;font-size:14px}
+.track{position:relative;height:54px;background:#17212b;border-radius:27px;overflow:hidden;user-select:none;border:1px solid #2f3e4e}
+.fill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#2ea6ff,#007aff);border-radius:27px}
+.txt{position:relative;z-index:1;line-height:54px;font-size:14px;color:#8e9ba8;pointer-events:none}
+.knob{position:absolute;left:4px;top:4px;width:46px;height:46px;background:#fff;border-radius:50%;z-index:2;display:flex;align-items:center;justify-content:center;color:#007aff;font-weight:bold;font-size:20px;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+</style></head><body><div class="card"><h2>🤖 Проверка на робота</h2><p id="st">Проведите ползунок вправо, чтобы подтвердить участие</p>
+<div class="track" id="tr"><div class="fill" id="fl"></div><div class="txt" id="tx">Проведите вправо ➡️</div><div class="knob" id="kb">❯</div></div></div>
+<script>
+const tg=window.Telegram.WebApp;tg.ready();tg.expand();
+const kb=document.getElementById('kb'),tr=document.getElementById('tr'),fl=document.getElementById('fl'),tx=document.getElementById('tx'),st=document.getElementById('st');
+let drag=false,startX=0,done=false;
+const move=(x)=>{if(!drag||done)return;const max=tr.offsetWidth-54;let dx=Math.max(0,Math.min(x-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+50)+'px';
+if(dx>=max-4){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
+const uid=tg.initDataUnsafe?.user?.id;const sp=tg.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
+fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,start_param:sp})})
+.then(()=>{st.innerText='Готово! Вернитесь в чат с ботом.';setTimeout(()=>tg.close(),600);}).catch(()=>tg.close());}};
+kb.addEventListener('touchstart',e=>{drag=true;startX=e.touches[0].clientX});
+window.addEventListener('touchmove',e=>move(e.touches[0].clientX));
+window.addEventListener('touchend',()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}});
+kb.addEventListener('mousedown',e=>{drag=true;startX=e.clientX});
+window.addEventListener('mousemove',e=>move(e.clientX));
+window.addEventListener('mouseup',()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}});
+</script></body></html>"""
+
+def process_webapp_join(user_id, start_param):
+    if not user_id or not str(start_param).startswith('join_'):
+        return
+    try:
+        msg_id = int(str(start_param).replace('join_', ''))
+    except Exception:
+        return
+    if msg_id not in active_giveaways:
+        try:
+            bot.send_message(user_id, "❌ Этот розыгрыш уже завершен или не найден.")
+        except Exception:
+            pass
+        return
+    gw = active_giveaways[msg_id]
+    if user_id in gw['participants']:
+        try:
+            bot.send_message(user_id, "Ты уже участвуешь в этом розыгрыше! 🍀")
+        except Exception:
+            pass
+        return
+    channels_to_check = list(set(gw.get('required_channels', []) + [gw['chat_id']]))
+    not_sub = [c for c in channels_to_check if _not_subscribed(c, user_id)]
+    if not_sub:
+        try:
+            bot.send_message(user_id, "❌ Для участия в розыгрыше необходимо подписаться на канал(ы) ниже:", reply_markup=get_unsubscribed_markup(not_sub, msg_id))
+        except Exception:
+            pass
+        return
+    register_participant(user_id, user_id, msg_id)
 
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
-            self.wfile.write(b"Bot is running")
+            self.wfile.write(WEBAPP_HTML.encode('utf-8'))
         def do_HEAD(self):
             self.send_response(200)
             self.end_headers()
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length).decode('utf-8') if length else '{}'
+            try:
+                data = json.loads(body)
+                threading.Thread(target=process_webapp_join, args=(data.get('user_id'), data.get('start_param')), daemon=True).start()
+            except Exception as e:
+                print(f"Ошибка WebApp: {e}")
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
     server = HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), DummyHandler)
     server.serve_forever()
-
 threading.Thread(target=run_dummy_server, daemon=True).start()
 print(f"Бот запущен! Юзернейм: {BOT_USERNAME}")
 bot.infinity_polling()

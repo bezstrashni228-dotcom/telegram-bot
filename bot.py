@@ -109,7 +109,8 @@ def get_my_channels_markup(user_id):
 
 def get_welcome_text():
     return "👋 Привет, вот доступные тебе команды\n<blockquote>🎁 /create — создание розыгрыша\n📡 /mychannels — мои каналы\n💥 /ref — реферальная система</blockquote>\n❗️ <i>Важно: если ты впервые в нашем боте, не забудь сначала добавить канал.</i>"
-    def ask_required_channels_step(chat_id):
+   
+def ask_required_channels_step(chat_id):
     txt = f"➕Добавьте каналы для обязательной подписки (основной канал уже включен).\n\n1. Добавьте @{BOT_USERNAME} в админы канала.\n2. Отправьте @юзернейм или перешлите пост.\n\n💬 Или нажмите кнопку ниже:"
     mk = types.InlineKeyboardMarkup()
     mk.add(types.InlineKeyboardButton('📢 Без обязательных подписок', callback_data='no_required_subs'))

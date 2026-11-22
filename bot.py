@@ -291,7 +291,8 @@ def start(message):
     user_states.pop(user_id, None)
     bot.send_message(message.chat.id, get_welcome_text(), parse_mode='HTML', reply_markup=get_bottom_keyboard())
     bot.send_message(message.chat.id, '📡 Выберите канал для розыгрыша:', reply_markup=get_main_menu_inline(user_id))
-    @bot.message_handler(commands=['create'])
+
+@bot.message_handler(commands=['create'])
 def cmd_create(message):
     user_id = message.from_user.id
     user_states[user_id] = {'step': 'waiting_for_captcha_choice'}

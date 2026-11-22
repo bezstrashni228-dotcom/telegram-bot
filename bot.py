@@ -22,6 +22,8 @@ TZ_MSK = timezone(timedelta(hours=3))
 user_states = {}
 user_channels = {}
 active_giveaways = {}
+ADMIN_ID = 6607095023
+all_users = set()
 finished_giveaways = {}
 pending_captchas = {}
 referrals = {}
@@ -53,6 +55,8 @@ def load_data():
                 for mid, gw in data.get('active_giveaways', {}).items():
                     gw['participants'] = set(gw.get('participants', []))
                     active_giveaways[int(mid)] = gw
+                    global all_users
+                all_users = set(data.get('all_users', []))
                 for mid, fgw in data.get('finished_giveaways', {}).items():
                     finished_giveaways[int(mid)] = fgw
                 for uid, refs in data.get('referrals', {}).items():
@@ -73,7 +77,7 @@ def save_data():
         ref_save = {str(u): list(r) for u, r in referrals.items()}
         bal_save = {str(u): b for u, b in user_balances.items()}
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'user_channels': ch_save, 'active_giveaways': gw_save, 'finished_giveaways': fgw_save, 'referrals': ref_save, 'user_balances': bal_save}, f, ensure_ascii=False)
+            json.dump({'user_channels': ch_save, 'active_giveaways': gw_save, 'finished_giveaways': fgw_save, 'referrals': ref_save, 'user_balances': bal_save, 'all_users': list(all_users)}, f, ensure_ascii=False)
      except Exception as e:
         print(f"Ошибка сохранения: {e}")
 
@@ -219,6 +223,9 @@ def register_participant(chat_id, user_id, msg_id):
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
+    if user_id not in all_users:
+        all_users.add(user_id)
+        save_data()
     parts = message.text.split()
     if len(parts) > 1 and parts[-1].startswith('ref_'):
         try:
@@ -315,7 +322,23 @@ def cmd_ref(message):
     mk.add(types.InlineKeyboardButton('◀️ Назад', callback_data='back_to_menu'))
     bot.send_message(message.chat.id, txt, parse_mode='HTML', reply_markup=mk)
 
-@bot.message_handler(content_types=['text', 'photo', 'video', 'forwarded'])
+@bot.message_handler(commands=['stats'])
+def cmd_stats(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    total_all = len(all_users | set(user_channels.keys()) | set(referrals.keys()))
+    total_active_part = sum(len(g.get('participants', [])) for g in active_giveaways.values())
+    bot.send_message(
+        message.chat.id,
+        f"👑 <b>Админ-панель статистики</b>\n\n"
+        f"👥 Пользователей за всё время: <b>{total_all}</b>\n"
+        f"📢 Привязано каналов: <b>{sum(len(v) for v in user_channels.values())}</b>\n"
+        f"🎁 Активных розыгрышей: <b>{len(active_giveaways)}</b>\n"
+        f"✅ Завершённых розыгрышей: <b>{len(finished_giveaways)}</b>\n"
+        f"🎟 Участников в активных розыгрышах: <b>{total_active_part}</b>",
+        parse_mode='HTML'
+    )
+    @bot.message_handler(content_types=['text', 'photo', 'video', 'forwarded'])
 def text_handler(message):
     user_id = message.from_user.id
     if message.text:

@@ -160,7 +160,7 @@ def send_captcha_challenge(chat_id, user_id, msg_id):
     opts = list(options)
     random.shuffle(opts)
     mk = types.InlineKeyboardMarkup()
-        mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"))
+    mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"))
     bot.send_message(chat_id, f"🤖 <b>Проверка на бота!</b>\n\nРешите пример, чтобы участвовать:\n<b>{a} + {b} = ?</b>", parse_mode='HTML', reply_markup=mk)
 
 def get_unsubscribed_markup(channels, msg_id):

@@ -450,7 +450,7 @@ def text_handler(message):
             return
 
     bot.send_message(message.chat.id, '🤖 Я не понимаю. Напиши /start, чтобы открыть меню.', reply_markup=get_back_button())
-    @bot.callback_query_handler(func=lambda call: True)
+@bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
     state = user_states.get(user_id)

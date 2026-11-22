@@ -353,8 +353,6 @@ def text_handler(message):
                 if bot.get_chat_member(ch_id, user_id).status not in ['administrator', 'creator']:
                     bot.send_message(message.chat.id, '❌ Вы не администратор этого канала!')
                     return
-                tm = bot.send_message(ch_id, '✅ Бот успешно добавлен!')
-                bot.delete_message(ch_id, tm.message_id)
                 user_channels.setdefault(user_id, {})[ch_id] = ch_title
                 save_data()
                 bot.send_message(message.chat.id, f'✅ Канал "{ch_title}" успешно привязан!', reply_markup=get_main_menu_inline(user_id))
@@ -409,10 +407,7 @@ def text_handler(message):
             try:
                 if bot.get_chat_member(ch_id, bot.get_me().id).status not in ['administrator', 'creator']:
                     bot.send_message(message.chat.id, '❌ Проверьте бота в администрации!')
-                    return
-                if bot.get_chat_member(ch_id, user_id).status not in ['administrator', 'creator']:
-                    bot.send_message(message.chat.id, '❌ Вы не админ этого канала!')
-                    return
+                    return 
                 state['required_channels'].add(ch_id)
                 mk = types.InlineKeyboardMarkup()
                 mk.add(types.InlineKeyboardButton('Продолжить настройку ➡️', callback_data='no_required_subs'))

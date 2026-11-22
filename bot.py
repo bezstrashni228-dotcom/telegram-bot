@@ -327,7 +327,7 @@ def text_handler(message):
         if cmd_txt in ['💥реферальная система', '💥 реферальная система', 'реферальная система', '/ref']:
             cmd_ref(message)
             return
-                state = user_states.get(user_id)
+    state = user_states.get(user_id)
     if isinstance(state, dict):
         step = state.get('step')
         if step == 'waiting_for_add_channel':

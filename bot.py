@@ -176,7 +176,8 @@ def get_unsubscribed_markup(channels, msg_id):
             pass
     mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"))
     return mk
-    def register_participant(chat_id, user_id, msg_id):
+    
+def register_participant(chat_id, user_id, msg_id):
     if msg_id not in active_giveaways:
         bot.send_message(chat_id, "❌ Этот розыгрыш уже завершен или не найден.")
         return

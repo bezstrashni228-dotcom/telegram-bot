@@ -268,7 +268,9 @@ def start(message):
                 bot.send_message(message.chat.id, "❌ Для участия в розыгрыше необходимо подписаться на канал(ы) ниже:", reply_markup=get_unsubscribed_markup(not_sub, msg_id))
                 return
             if gw.get('use_captcha', False):
-                send_captcha_challenge(message.chat.id, user_id, msg_id)
+                mk = types.InlineKeyboardMarkup()
+                mk.add(types.InlineKeyboardButton("🤖 Подтвердить участие", web_app=types.WebAppInfo(url=f"https://telegram-bot-1-1t48.onrender.com{msg_id}")))
+                bot.send_message(message.chat.id, "🛡️ Для защиты от ботов нажмите кнопку ниже и проведите ползунок:", reply_markup=mk)
             else:
                 register_participant(message.chat.id, user_id, msg_id)
         else:
@@ -693,18 +695,18 @@ kb.onpointerdown=(e)=>{if(done)return;drag=true;startX=e.clientX;kb.setPointerCa
 kb.onpointermove=(e)=>{if(!drag||done)return;const max=tr.offsetWidth-56;let dx=Math.max(0,Math.min(e.clientX-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+52)+'px';
 if(dx>=max-5){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
 const uid=tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:null;
-const sp=tg.initDataUnsafe&&tg.initDataUnsafe.start_param?tg.initDataUnsafe.start_param:(new URLSearchParams(location.search).get('tgWebAppStartParam')||'');
-fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,start_param:sp})})
+const mid=new URLSearchParams(location.search).get('msg_id')||'';
+fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,msg_id:mid})})
 .then(()=>{st.innerText='Готово! Возвращаемся в чат...';setTimeout(()=>tg.close(),500)}).catch(()=>tg.close())}};
 kb.onpointerup=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 kb.onpointercancel=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 </script></body></html>"""
 
-def process_webapp_join(user_id, start_param):
-    if not user_id or not str(start_param).startswith('join_'):
+def process_webapp_join(user_id, msg_id_raw):
+    if not user_id or not msg_id_raw:
         return
     try:
-        msg_id = int(str(start_param).replace('join_', ''))
+        msg_id = int(msg_id_raw)
     except Exception:
         return
     if msg_id not in active_giveaways:
@@ -720,16 +722,8 @@ def process_webapp_join(user_id, start_param):
         except Exception:
             pass
         return
-    channels_to_check = list(set(gw.get('required_channels', []) + [gw['chat_id']]))
-    not_sub = [c for c in channels_to_check if _not_subscribed(c, user_id)]
-    if not_sub:
-        try:
-            bot.send_message(user_id, "❌ Для участия в розыгрыше необходимо подписаться на канал(ы) ниже:", reply_markup=get_unsubscribed_markup(not_sub, msg_id))
-        except Exception:
-            pass
-        return
     register_participant(user_id, user_id, msg_id)
-
+    
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -745,7 +739,7 @@ def run_dummy_server():
             body = self.rfile.read(length).decode('utf-8') if length else '{}'
             try:
                 data = json.loads(body)
-                threading.Thread(target=process_webapp_join, args=(data.get('user_id'), data.get('start_param')), daemon=True).start()
+                threading.Thread(target=process_webapp_join, args=(data.get('user_id'), data.get('msg_id')), daemon=True).start()
             except Exception as e:
                 print(f"Ошибка WebApp: {e}")
             self.send_response(200)

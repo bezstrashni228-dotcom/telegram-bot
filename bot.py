@@ -695,10 +695,10 @@ kb.onpointerdown=(e)=>{if(done)return;drag=true;startX=e.clientX;kb.setPointerCa
 kb.onpointermove=(e)=>{if(!drag||done)return;const max=tr.offsetWidth-56;let dx=Math.max(0,Math.min(e.clientX-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+52)+'px';
 if(dx>=max-5){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
 const p=new URLSearchParams(location.search);
-const uid=p.get('uid')||(tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:null);
+const uid=p.get('uid')||(tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:'');
 const mid=p.get('msg_id')||'';
-fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,msg_id:mid})})
-.then(()=>{st.innerText='Готово! Возвращаемся в чат...';setTimeout(()=>tg.close(),500)}).catch(()=>tg.close())}};
+fetch('/verify?uid='+encodeURIComponent(uid)+'&msg_id='+encodeURIComponent(mid))
+.then(r=>r.text()).then(()=>{st.innerText='Готово!';setTimeout(()=>tg.close(),300)}).catch(()=>tg.close())}};
 kb.onpointerup=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 kb.onpointercancel=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 </script></body></html>"""
@@ -729,6 +729,17 @@ def process_webapp_join(user_id_raw, msg_id_raw):
 def run_dummy_server():
     class DummyHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path.startswith('/verify'):
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                uid = next(iter(qs.get('uid', ())), None)
+                mid = next(iter(qs.get('msg_id', ())), None)
+                threading.Thread(target=process_webapp_join, args=(uid, mid), daemon=True).start()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'ok')
+                return
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
@@ -736,18 +747,6 @@ def run_dummy_server():
         def do_HEAD(self):
             self.send_response(200)
             self.end_headers()
-        def do_POST(self):
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length).decode('utf-8') if length else '{}'
-            try:
-                data = json.loads(body)
-                threading.Thread(target=process_webapp_join, args=(data.get('user_id'), data.get('msg_id')), daemon=True).start()
-            except Exception as e:
-                print(f"Ошибка WebApp: {e}")
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
     server = HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), DummyHandler)
     server.serve_forever()
 threading.Thread(target=run_dummy_server, daemon=True).start()

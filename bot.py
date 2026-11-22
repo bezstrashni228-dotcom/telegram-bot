@@ -696,7 +696,8 @@ kb.onpointermove=(e)=>{if(!drag||done)return;const max=tr.offsetWidth-56;let dx=
 if(dx>=max-5){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
 const p=new URLSearchParams(location.search);
 const uid=p.get('uid')||(tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:'');
-const mid=p.get('msg_id')||'';
+const rawMid=p.get('msg_id')||p.get('tgWebAppStartParam')||(tg.initDataUnsafe&&tg.initDataUnsafe.start_param)||'';
+const mid=String(rawMid).replace('join_','');
 fetch('/verify?uid='+encodeURIComponent(uid)+'&msg_id='+encodeURIComponent(mid))
 .then(r=>r.text()).then(()=>{st.innerText='Готово!';setTimeout(()=>tg.close(),300)}).catch(()=>tg.close())}};
 kb.onpointerup=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};

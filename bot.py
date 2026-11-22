@@ -559,7 +559,7 @@ def callback_handler(call):
                     pass
                 send_captcha_challenge(call.message.chat.id, user_id, msg_id)
         return
-            elif call.data == 'add_channel':
+    elif call.data == 'add_channel':
         user_states[user_id] = {'step': 'waiting_for_add_channel'}
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='🔗 Отправь @юзернейм канала или перешли сюда пост из канала.\n\n⚠️ Я и ты должны быть админами в канале!', reply_markup=get_back_button())
         bot.answer_callback_query(call.id)

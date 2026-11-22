@@ -269,7 +269,7 @@ def start(message):
                 return
             if gw.get('use_captcha', False):
                 mk = types.InlineKeyboardMarkup()
-                mk.add(types.InlineKeyboardButton("🤖 Подтвердить участие", web_app=types.WebAppInfo(url=f"https://telegram-bot-1-1t48.onrender.com{msg_id}")))
+                mk.add(types.InlineKeyboardButton("🤖 Подтвердить участие", web_app=types.WebAppInfo(url=f"https://telegram-bot-1-1t48.onrender.com/?msg_id={msg_id}&uid={user_id}")))
                 bot.send_message(message.chat.id, "🛡️ Для защиты от ботов нажмите кнопку ниже и проведите ползунок:", reply_markup=mk)
             else:
                 register_participant(message.chat.id, user_id, msg_id)
@@ -694,18 +694,20 @@ let drag=false,startX=0,done=false;
 kb.onpointerdown=(e)=>{if(done)return;drag=true;startX=e.clientX;kb.setPointerCapture(e.pointerId)};
 kb.onpointermove=(e)=>{if(!drag||done)return;const max=tr.offsetWidth-56;let dx=Math.max(0,Math.min(e.clientX-startX,max));kb.style.left=(4+dx)+'px';fl.style.width=(dx+52)+'px';
 if(dx>=max-5){done=true;drag=false;tx.innerText='Проверяем...';kb.innerText='✓';
-const uid=tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:null;
-const mid=new URLSearchParams(location.search).get('msg_id')||'';
+const p=new URLSearchParams(location.search);
+const uid=p.get('uid')||(tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:null);
+const mid=p.get('msg_id')||'';
 fetch('/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,msg_id:mid})})
 .then(()=>{st.innerText='Готово! Возвращаемся в чат...';setTimeout(()=>tg.close(),500)}).catch(()=>tg.close())}};
 kb.onpointerup=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 kb.onpointercancel=()=>{if(!done){drag=false;kb.style.left='4px';fl.style.width='0'}};
 </script></body></html>"""
 
-def process_webapp_join(user_id, msg_id_raw):
-    if not user_id or not msg_id_raw:
+def process_webapp_join(user_id_raw, msg_id_raw):
+    if not user_id_raw or not msg_id_raw:
         return
     try:
+        user_id = int(user_id_raw)
         msg_id = int(msg_id_raw)
     except Exception:
         return

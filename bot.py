@@ -59,7 +59,7 @@ def load_data():
                     referrals[int(uid)] = set(refs)
                 for uid, bal in data.get('user_balances', {}).items():
                     user_balances[int(uid)] = int(bal)
-    except Exception as e:
+     except Exception as e:
             print(f"Ошибка загрузки: {e}")
 def save_data():
      try:

@@ -61,8 +61,8 @@ def load_data():
                     user_balances[int(uid)] = int(bal)
         except Exception as e:
             print(f"Ошибка загрузки: {e}")
-            def save_data():
-    try:
+def save_data():
+     try:
         gw_save = {}
         for mid, gw in active_giveaways.items():
             c = gw.copy()

@@ -4,7 +4,7 @@ import random, os, html, json, threading
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-TOKEN = '9132199477:AAFFLqu7pCZHiRqhfUJuf7uHqvFNDlHllhg'
+TOKEN = '9132199477:AAG3XZwM91wOe3mvgv6yNGRtAGRfJc67S1o'
 ADMIN_ID = 8679581943
 DATA_FILE = 'bot_data.json'
 REF_REWARD = 1

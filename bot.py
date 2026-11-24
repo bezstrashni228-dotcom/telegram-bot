@@ -159,9 +159,12 @@ def publish_results(giveaway, winners, is_auto=False):
     res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
     try:
         bot.send_message(giveaway['chat_id'], res_text, parse_mode='HTML')
-    except Exception as e:
+        except Exception as e:
         print(f"Ошибка отправки итогов: {e}")
-
+        try:
+            bot.send_message(ADMIN_ID, f"⚠️ Ошибка отправки итогов в канал: {e}")
+        except Exception:
+            pass
 def send_captcha_challenge(chat_id, user_id, msg_id):
     a = random.randint(3, 19)
     b = random.randint(2, 15)

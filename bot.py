@@ -145,9 +145,18 @@ def show_channels(chat_id, user_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=get_back_button())
 
 def publish_results(giveaway, winners, is_auto=False):
-    w_txt = ", ".join([f'<a href="tg://user?id={w}">Победитель</a>' for w in winners])
-    head = "🎉 <b>Розыгрыш завершен!</b>\n\nНабралось нужное количество участников, и мы готовы объявить победителей!" if is_auto else "🎊 <b>Розыгрыш завершен досрочно!</b>\n\nСоздатель решил не ждать полного набора участников и объявил победителей."
-    res_txt = f"{head}\n\n🏆 <b>Победители:</b>\n{w_txt}\n\nПоздравляем! 🥳 С вами свяжется создатель розыгрыша для получения приза."
+    e_party = '<tg-emoji emoji-id="5208541126583136130">🎉</tg-emoji>'
+    e_medal = '<tg-emoji emoji-id="5447550653536681735">🏅</tg-emoji>'
+    win_lines = []
+    for i, w in enumerate(winners, 1):
+        try:
+            u = bot.get_chat(w)
+            uname = f"@{u.username}" if u.username else f'<a href="tg://user?id={w}">{html.escape(u.first_name or "Победитель")}</a>'
+        except Exception:
+            uname = f'<a href="tg://user?id={w}">Победитель {w}</a>'
+        win_lines.append(f"Место: {i} | ю-з: {uname}")
+    winners_block = "<blockquote>" + ("\n".join(win_lines) if win_lines else "Нет участников") + "</blockquote>"
+    res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
     try:
         bot.send_message(giveaway['chat_id'], res_txt, parse_mode='HTML')
     except Exception as e:

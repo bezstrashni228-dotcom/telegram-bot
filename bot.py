@@ -145,8 +145,8 @@ def show_channels(chat_id, user_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=get_back_button())
 
 def publish_results(giveaway, winners, is_auto=False):
-    e_party = '<tg-emoji emoji-id="5208541126583136130">🎉</tg-emoji>'
-    e_medal = '<tg-emoji emoji-id="5447550653536681735">🏅</tg-emoji>'
+    e_party = '🎉'
+    e_medal = '🏅'
     win_lines = []
     for i, w in enumerate(winners, 1):
         try:

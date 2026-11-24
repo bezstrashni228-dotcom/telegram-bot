@@ -143,7 +143,7 @@ def show_channels(chat_id, user_id, message_id=None):
                 pass
         else:
             bot.send_message(chat_id, txt, reply_markup=get_back_button())
-
+            
 def publish_results(giveaway, winners, is_auto=False):
     e_party = '🎉'
     e_medal = '🏅'
@@ -157,18 +157,8 @@ def publish_results(giveaway, winners, is_auto=False):
         win_lines.append(f"Место: {i} | ю-з: {uname}")
     winners_block = "<blockquote>" + ("\n".join(win_lines) if win_lines else "Нет участников") + "</blockquote>"
     res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
-    win_lines = []
-    for i, w in enumerate(winners, 1):
-        try:
-            u = bot.get_chat(w)
-            uname = f"@{u.username}" if u.username else f'<a href="tg://user?id={w}">{html.escape(u.first_name or "Победитель")}</a>'
-        except Exception:
-            uname = f'<a href="tg://user?id={w}">Победитель {w}</a>'
-        win_lines.append(f"Место: {i} | ю-з: {uname}")
-    winners_block = "<blockquote>" + ("\n".join(win_lines) if win_lines else "Нет участников") + "</blockquote>"
-    res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
     try:
-        bot.send_message(giveaway['chat_id'], res_txt, parse_mode='HTML')
+        bot.send_message(giveaway['chat_id'], res_text, parse_mode='HTML')
     except Exception as e:
         print(f"Ошибка отправки итогов: {e}")
 
@@ -181,6 +171,7 @@ def send_captcha_challenge(chat_id, user_id, msg_id):
     while len(options) < 4:
         options.add(ans + random.choice([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]))
     opts = list(options)
+    random.shuffle(opts)
     random.shuffle(opts)
     mk = types.InlineKeyboardMarkup()
     mk.add(types.InlineKeyboardButton("🔄 Проверить подписку", url=f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"))

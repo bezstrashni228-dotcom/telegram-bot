@@ -157,6 +157,16 @@ def publish_results(giveaway, winners, is_auto=False):
         win_lines.append(f"Место: {i} | ю-з: {uname}")
     winners_block = "<blockquote>" + ("\n".join(win_lines) if win_lines else "Нет участников") + "</blockquote>"
     res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
+    win_lines = []
+    for i, w in enumerate(winners, 1):
+        try:
+            u = bot.get_chat(w)
+            uname = f"@{u.username}" if u.username else f'<a href="tg://user?id={w}">{html.escape(u.first_name or "Победитель")}</a>'
+        except Exception:
+            uname = f'<a href="tg://user?id={w}">Победитель {w}</a>'
+        win_lines.append(f"Место: {i} | ю-з: {uname}")
+    winners_block = "<blockquote>" + ("\n".join(win_lines) if win_lines else "Нет участников") + "</blockquote>"
+    res_text = f"{e_party}<b>Результаты розыгрыша:</b>\n\n{e_medal} <b>Победители:</b>\n{winners_block}"
     try:
         bot.send_message(giveaway['chat_id'], res_txt, parse_mode='HTML')
     except Exception as e:
@@ -222,7 +232,7 @@ def register_participant(chat_id, user_id, msg_id):
             pass
     else:
         try:
-            j_url = f"{BASE_TG_URL}{BOT_USERNAME}/verify?startapp=join_{msg_id}"
+            j_url = f"{BASE_TG_URL}{BOT_USERNAME}?start=join_{msg_id}"
             mk = types.InlineKeyboardMarkup()
             mk.add(make_join_button(gw.get('btn_text', '🎮 Участвовать'), gw.get('btn_color', 'default'), cnt, j_url))
             bot.edit_message_reply_markup(chat_id=gw['chat_id'], message_id=msg_id, reply_markup=mk)
